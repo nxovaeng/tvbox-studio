@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 224 71.4% 4.1%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 71.4% 4.1%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 224 71.4% 4.1%;
+    --primary: 220 90% 56%;
+    --primary-foreground: 210 20% 98%;
+    --secondary: 220 14.3% 95.9%;
+    --secondary-foreground: 220.9 39.3% 11%;
+    --muted: 220 14.3% 95.9%;
+    --muted-foreground: 220 8.9% 46.1%;
+    --accent: 220 14.3% 95.9%;
+    --accent-foreground: 220.9 39.3% 11%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 20% 98%;
+    --radius: 0.5rem;
+    --sidebar: 220 14.3% 95.9%;
+    --sidebar-foreground: 220 8.9% 46.1%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-accent: 220 90% 56%;
+    --sidebar-accent-foreground: 210 20% 98%;
+  }
+
+  .dark {
+    --background: 224 71.4% 4.1%;
+    --foreground: 210 20% 98%;
+    --card: 224 71.4% 4.1%;
+    --card-foreground: 210 20% 98%;
+    --border: 215 27.9% 16.9%;
+    --input: 215 27.9% 16.9%;
+    --ring: 216 12.2% 83.9%;
+    --primary: 220 90% 56%;
+    --primary-foreground: 210 20% 98%;
+    --secondary: 215 27.9% 16.9%;
+    --secondary-foreground: 210 20% 98%;
+    --muted: 215 27.9% 16.9%;
+    --muted-foreground: 217.9 10.6% 64.9%;
+    --accent: 215 27.9% 16.9%;
+    --accent-foreground: 210 20% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 20% 98%;
+    --sidebar: 222 47% 11%;
+    --sidebar-foreground: 215 20.2% 65.1%;
+    --sidebar-border: 215 27.9% 16.9%;
+    --sidebar-accent: 220 90% 56%;
+    --sidebar-accent-foreground: 210 20% 98%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/40;
+}
+
+/* Tauri 窗口拖拽区域 */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* 防止文本选中影响拖拽 */
+.drag-region * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 连通性状态点 */
+.status-dot {
+  @apply inline-block w-2 h-2 rounded-full flex-shrink-0;
+}
+.status-dot.online { @apply bg-green-500; }
+.status-dot.offline { @apply bg-red-500; }
+.status-dot.checking { @apply bg-yellow-500 animate-pulse; }
+.status-dot.unknown { @apply bg-gray-400; }
+
+/* Monaco Editor 容器 */
+.monaco-container {
+  @apply w-full h-full;
+}
+
+/* 卡片悬停效果 */
+.card-hover {
+  @apply transition-all duration-150 hover:shadow-md hover:border-primary/30;
+}
+
+/* 标签页内容区 */
+.tab-panel {
+  @apply flex-1 overflow-auto;
+}
+
+/* 图形化编辑器字段行 */
+.field-row {
+  @apply flex items-start gap-2 py-1.5 border-b border-border/50 last:border-0;
+}
+.field-label {
+  @apply text-sm font-medium text-muted-foreground w-36 flex-shrink-0 pt-1.5;
+}
+.field-input {
+  @apply flex-1 min-w-0;
+}
+
+/* Toast 动画 */
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes slideOut {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+.toast-enter { animation: slideIn 0.2s ease-out; }
+.toast-exit  { animation: slideOut 0.2s ease-in; }

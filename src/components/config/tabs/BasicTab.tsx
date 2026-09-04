@@ -36,10 +36,10 @@ export function BasicTab() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FieldGroup label="配置名称">
-            <Input value={source.name ?? ""} onChange={(e) => updateSource({ name: e.target.value })} placeholder="例如：家庭影视配置" />
+            <Input value={source.name ?? ""} readOnly className="bg-muted/40 cursor-default" />
           </FieldGroup>
           <FieldGroup label="配置路径">
-            <Input value={source.path ?? ""} onChange={(e) => updateSource({ path: e.target.value })} placeholder="例如：./box/xiaosa/xiaosa.json" />
+            <Input value={source.path ?? ""} readOnly className="bg-muted/40 cursor-default font-mono text-xs" />
           </FieldGroup>
         </div>
 

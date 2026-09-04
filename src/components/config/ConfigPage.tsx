@@ -1,14 +1,15 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { useTvBoxStore, useUIStore, useHistoryStore, useConfigCardsStore, useSettingsStore } from "../../store";
+import { useTvBoxStore, useUIStore, useConfigCardsStore, useSettingsStore } from "../../store";
 import { Button } from "../ui/Button";
-import { Input } from "../ui/Input";
 import { Badge } from "../ui/Badge";
+import { Dialog } from "../ui/Dialog";
+import { Input } from "../ui/Input";
 import { cn } from "../../lib/utils";
-import { getContent, readFile } from "../../lib/tauri";
+import { getContent, readFile, writeFile as tauriWriteFile } from "../../lib/tauri";
 import {
-  Upload, Download, RefreshCw, Merge, Link, Clock,
-  Shield, Radio, Film, Puzzle, Filter, Settings2, Layers, Flag, Volume2, HardDrive,
-  Globe, ChevronDown, Check, AlertCircle, Plus, Search,
+  Download, RefreshCw, Merge, Upload,
+  Shield, Radio, Film, Puzzle, Filter, Settings2, Layers, Flag, Volume2,
+  HardDrive, Globe, FileJson,
 } from "lucide-react";
 import { SitesTab } from "./tabs/SitesTab";
 import { LivesTab } from "./tabs/LivesTab";
@@ -22,7 +23,6 @@ import { DohTab } from "./tabs/DohTab";
 import { MergeDialog } from "./MergeDialog";
 import { SaveDialog } from "./SaveDialog";
 import { PublishDialog } from "./PublishDialog";
-import { HistoryDialog } from "./HistoryDialog";
 import { LocalizeDialog } from "./LocalizeDialog";
 import { ConfigManagerView } from "./manager/ConfigManagerView";
 
@@ -33,7 +33,7 @@ const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: 
   { id: "sites",  label: "爬虫规则", icon: Film },
   { id: "lives",  label: "直播规则", icon: Radio },
   { id: "parses", label: "解析接口", icon: Puzzle },
-  { id: "doh",    label: "网络 / DoH", icon: Globe },
+  { id: "doh",    label: "网络/DoH",  icon: Globe },
   { id: "ads",    label: "广告过滤", icon: Filter },
   { id: "flags",  label: "VIP标识",  icon: Flag },
   { id: "ijk",    label: "IJK参数",  icon: Volume2 },
@@ -45,120 +45,107 @@ export function ConfigPage() {
     source, sourceUrl, sourcePath, isDirty, loading,
     setSourceUrl, loadFromUrl, loadFromText, clearSource, getJson,
   } = useTvBoxStore();
-  const { addToast } = useUIStore();
-  const { add: addHistory } = useHistoryStore();
+  const { addToast, setActiveConfigId } = useUIStore();
   const { cards, upsert: upsertConfigCard } = useConfigCardsStore();
 
   const [activeTab, setActiveTab] = useState<TabId>("basic");
-  const [urlInput, setUrlInput] = useState(sourceUrl);
   const [showMerge, setShowMerge] = useState(false);
-  const [showSave, setShowSave] = useState(false);
   const [showPublish, setShowPublish] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
   const [showLocalize, setShowLocalize] = useState(false);
+  const [showSaveAs, setShowSaveAs] = useState(false);
+  const [saveAsName, setSaveAsName] = useState("");
 
-  // 快速配置切换器下拉
-  const [showSwitcher, setShowSwitcher] = useState(false);
-  const [switcherSearch, setSwitcherSearch] = useState("");
-  const switcherRef = useRef<HTMLDivElement>(null);
+  // ── 推导当前配置的专属子目录 ──
+  const getSubDir = useCallback((): string => {
+    const raw = sourcePath || source?.path || "";
+    const p = raw.startsWith("file://") ? decodeURIComponent(raw.slice(7)) : raw;
+    if (!p) return "";
+    return p.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
+  }, [sourcePath, source?.path]);
 
-  // 点击外部关闭切换器
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) {
-        setShowSwitcher(false);
-      }
-    };
-    if (showSwitcher) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [showSwitcher]);
+  // ── 获取同级目录下的其他配置 ──
+  
+  const activeProject = React.useMemo(() => {
+    const subDir = getSubDir();
+    if (!subDir) return null;
+    const projName = subDir.split("/").pop();
+    return cards.find(c => c.projectName === projName);
+  }, [cards, getSubDir]);
 
-  // 页面级快捷键
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        if (e.shiftKey) handleSaveLocal(true);
-        else handleSaveLocal(false);
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === "m") {
-        e.preventDefault();
-        if (source) setShowMerge(true);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [source]);
+  const siblingConfigs = activeProject ? activeProject.configs : [];
 
-  const handleLoad = useCallback(async () => {
-    const url = urlInput.trim();
-    if (!url) return;
-    try {
-      await loadFromUrl(url, getContent);
-      setSourceUrl(url);
-      const loaded = useTvBoxStore.getState().source;
-      upsertConfigCard({
-        name: loaded?.name || url.split(/[\\/]/).pop() || url,
-        path: loaded?.path || url,
-        url,
-        sites: loaded?.sites.length ?? 0,
-        lives: loaded?.lives.length ?? 0,
-        parses: loaded?.parses?.length ?? 0,
-        spider: loaded?.spider,
-      });
-      addHistory({ url, type: "tvbox" });
-      addToast({ type: "success", message: "配置加载成功" });
-      setActiveTab("basic");
-    } catch (e) {
-      addToast({ type: "error", message: `加载失败: ${e}` });
-    }
-  }, [urlInput, loadFromUrl, setSourceUrl, upsertConfigCard, addHistory, addToast]);
 
+  // ── 核心：加载配置（侧边栏点击、配置中心点击、创建后进入）──
   const handleCardSelect = useCallback(async (
     url: string,
-    tab?: "sites" | "lives" | "parses" | "basic",
+    tab?: any,
+    cardId?: string,
     targetLocalPath?: string,
     customName?: string
   ) => {
+    const { sourceUrl, isDirty } = useTvBoxStore.getState();
+
+    // 拦截重复点击
+    if (sourceUrl && url && !url.startsWith("blank://")) {
+      const isSame = sourceUrl === url || (targetLocalPath && sourceUrl === `file://${targetLocalPath}`);
+      if (isSame) {
+        if (cardId) setActiveConfigId(cardId);
+        setActiveTab(tab ?? "basic");
+        return;
+      }
+    }
+
+    if (isDirty) {
+      const ok = window.confirm("当前配置有未保存的修改，确认要放弃修改并切换吗？");
+      if (!ok) return;
+    }
+
     if (!url) {
       loadFromText(JSON.stringify({ sites: [], lives: [] }), "");
-      setUrlInput("");
       setActiveTab(tab ?? "basic");
       return;
     }
 
+    // 空白配置（来自模板 / 新建）
     if (url.startsWith("blank://")) {
       const decoded = decodeURIComponent(url.slice(8));
+      // 剔除顶层 name/path 后写入文件
+      let cleanContent = decoded;
+      try {
+        const parsed = JSON.parse(decoded);
+        delete parsed.name;
+        delete parsed.path;
+        cleanContent = JSON.stringify(parsed, null, 2);
+      } catch { /* keep raw */ }
+
       let effectiveUrl = "";
       if (targetLocalPath) {
         try {
           const { writeFile: writeLocal, setServerResourceDir, serverCache } = await import("../../lib/tauri");
-          await writeLocal(targetLocalPath, decoded);
+          await writeLocal(targetLocalPath, cleanContent);
           const dir = targetLocalPath.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
           if (dir && dir !== targetLocalPath) {
             await setServerResourceDir(dir).catch(() => {});
           }
-          await serverCache("tvbox.json", decoded).catch(() => {});
+          await serverCache("tvbox.json", cleanContent).catch(() => {});
           effectiveUrl = `file://${targetLocalPath}`;
         } catch (err) {
           console.error("创建本地配置文件失败:", err);
         }
       }
-      loadFromText(decoded, effectiveUrl);
+      loadFromText(cleanContent, effectiveUrl);
       if (targetLocalPath) {
         useTvBoxStore.getState().setSourcePath(targetLocalPath);
         if (customName) {
           useTvBoxStore.getState().updateSource({ name: customName, path: targetLocalPath });
         }
       }
-      setUrlInput(effectiveUrl);
+      if (cardId) setActiveConfigId(cardId);
       setActiveTab(tab ?? "basic");
       return;
     }
 
+    // 正常加载
     try {
       if (url.startsWith("file://")) {
         const localPath = decodeURIComponent(url.slice(7));
@@ -173,15 +160,12 @@ export function ConfigPage() {
         await serverCache("tvbox.json", content).catch(() => {});
       } else {
         await loadFromUrl(url, getContent);
-        // 如果创建向导指定了本地子目录保存路径，则拉取网络配置后立即直接落盘到指定子目录
+        // 网络配置且指定了本地落盘路径
         if (targetLocalPath) {
           try {
             const { writeFile: writeLocal, setServerResourceDir, serverCache } = await import("../../lib/tauri");
             const loaded = useTvBoxStore.getState().source;
-            if (loaded) {
-              if (customName) loaded.name = customName;
-              loaded.path = targetLocalPath;
-            }
+            if (loaded && customName) loaded.name = customName;
             const jsonText = useTvBoxStore.getState().getJson();
             await writeLocal(targetLocalPath, jsonText);
             const dir = targetLocalPath.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
@@ -199,364 +183,205 @@ export function ConfigPage() {
       }
       setSourceUrl(url);
       const loaded = useTvBoxStore.getState().source;
-      upsertConfigCard({
-        name: customName || loaded?.name || url.split(/[\\/]/).pop() || url,
-        path: targetLocalPath || loaded?.path || url,
-        url,
-        sites: loaded?.sites.length ?? 0,
-        lives: loaded?.lives.length ?? 0,
-        parses: loaded?.parses?.length ?? 0,
-        spider: loaded?.spider,
-      });
-      const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
-      const { writeConfigsRecord } = await import("../../lib/configRecords");
-      await writeConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).catch(() => {});
 
-      setUrlInput(url);
+      let targetId = cardId;
+      if (!targetId) {
+        const cards = useConfigCardsStore.getState().cards;
+        const matched = cards.find(c => url.includes("/" + c.projectName + "/"));
+        if (matched) targetId = matched.id;
+      }
+
+      
+      // Sync project via scan
+      import("../../lib/configRecords").then(({ scanAndSyncConfigsRecord }) => {
+         const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
+         scanAndSyncConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).then(synced => {
+             useConfigCardsStore.getState().importCards(synced);
+         });
+      });
+
+      if (targetId) setActiveConfigId(targetId);
       setActiveTab(tab ?? "basic");
     } catch (e) {
-      addToast({ type: "error", message: `配置加载失败: ${e}` });
+      addToast({ type: "error", message: `加载失败: ${e}` });
     }
-  }, [loadFromUrl, loadFromText, setSourceUrl, upsertConfigCard, addToast]);
+  }, [loadFromText, loadFromUrl, setSourceUrl, upsertConfigCard, addToast, setActiveConfigId, getContent]);
 
-  // 安全切换或返回配置库检查
-  const handleSafeSwitch = (action: () => void) => {
-    if (isDirty) {
-      const confirmed = window.confirm("当前配置存在未保存的修改，切换或退出将丢失这些修改。确定继续吗？");
-      if (!confirmed) return;
-    }
-    action();
-  };
+  // ── 侧边栏自定义事件监听 ──
+  useEffect(() => {
+    const handleSidebarOpen = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.projectName && detail?.defaultConfig) {
+        const rootSaveDir = (useSettingsStore.getState().settings.saveDir || "./box").replace(/\/+$/, "");
+        const targetPath = `${rootSaveDir}/${detail.projectName}/${detail.defaultConfig}`;
+        handleCardSelect(`file://${targetPath}`, "basic", detail.id);
+      }
+    };
+    const handleSidebarNew = () => {
+      const { isDirty } = useTvBoxStore.getState();
+      if (isDirty) {
+        const ok = window.confirm("当前配置有未保存的修改，确认要放弃修改吗？");
+        if (!ok) return;
+      }
+      clearSource();
+    };
+    window.addEventListener("sidebar:openConfig", handleSidebarOpen);
+    window.addEventListener("sidebar:newConfig", handleSidebarNew);
+    return () => {
+      window.removeEventListener("sidebar:openConfig", handleSidebarOpen);
+      window.removeEventListener("sidebar:newConfig", handleSidebarNew);
+    };
+  }, [handleCardSelect, clearSource]);
 
-  const handleLoadFile = useCallback(async () => {
+  // ── 本地文件打开 ──
+  const handleOpenLocalFile = useCallback(async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const path = await open({ filters: [{ name: "JSON", extensions: ["json", "txt"] }] });
-      if (!path || typeof path !== "string") return;
-      const { readFile: readLocal, setServerResourceDir, serverCache } = await import("../../lib/tauri");
-      const text = await readLocal(path);
-      loadFromText(text, `file://${path}`);
-      useTvBoxStore.getState().setSourcePath(path);
-      const dir = path.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
-      if (dir && dir !== path) {
-        await setServerResourceDir(dir).catch(() => {});
-      }
-      await serverCache("tvbox.json", text).catch(() => {});
-
-      const loaded = useTvBoxStore.getState().source;
-      upsertConfigCard({
-        name: loaded?.name || path.split(/[\\/]/).pop() || path,
-        path: loaded?.path || path,
-        url: `file://${path}`,
-        sites: loaded?.sites.length ?? 0,
-        lives: loaded?.lives.length ?? 0,
-        parses: loaded?.parses?.length ?? 0,
-        spider: loaded?.spider,
+      const selected = await open({
+        filters: [{ name: "JSON / TXT", extensions: ["json", "txt"] }],
+        multiple: false,
       });
-      setUrlInput(`file://${path}`);
-      addToast({ type: "success", message: "文件加载成功" });
-    } catch (e) {
-      addToast({ type: "error", message: `打开文件失败: ${e}` });
+      if (selected && typeof selected === "string") {
+        handleCardSelect(`file://${selected}`, "basic");
+      }
+    } catch (err) {
+      console.error("打开本地文件失败:", err);
     }
-  }, [loadFromText, upsertConfigCard, addToast]);
+  }, [handleCardSelect]);
 
-  const handleSaveLocal = useCallback(async (forceDialog = false) => {
-    const json = getJson();
-    if (!json) return;
+  // ── 保存 ──
+  const handleSave = useCallback(async () => {
     try {
-      const currentPath = source?.path || sourcePath;
-      let path = (!forceDialog && currentPath) ? currentPath : "";
-      if (path.startsWith("file://")) {
-        path = decodeURIComponent(path.slice(7));
-      }
-
+      let path = sourcePath || source?.path || "";
+      if (path.startsWith("file://")) path = decodeURIComponent(path.slice(7));
       if (!path) {
-        const { save } = await import("@tauri-apps/plugin-dialog");
-        const defaultName = (source?.name || "config").replace(/[^\w\u4e00-\u9fa5]+/g, "_");
-        const chosen = await save({
-          filters: [{ name: "JSON", extensions: ["json"] }],
-          defaultPath: `${defaultName}.json`,
-        });
-        if (!chosen) return;
-        path = chosen;
+        addToast({ type: "warning", message: "请先通过「另存为」指定保存路径" });
+        setShowSaveAs(true);
+        return;
       }
-
-      const { writeFile: writeLocal, setServerResourceDir, serverCache } = await import("../../lib/tauri");
-      const fileName = path.replace(/\\/g, "/").split("/").pop()?.replace(/\.[^.]+$/, "") ?? "TVBox 配置";
-      useTvBoxStore.getState().updateSource({
-        path,
-        name: useTvBoxStore.getState().source?.name || fileName,
-      });
+      const { setServerResourceDir, serverCache } = await import("../../lib/tauri");
       const updatedJson = useTvBoxStore.getState().getJson();
-      await writeLocal(path, updatedJson);
-
+      await tauriWriteFile(path, updatedJson);
       const dir = path.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
       if (dir && dir !== path) {
         await setServerResourceDir(dir).catch(() => {});
       }
       await serverCache("tvbox.json", updatedJson).catch(() => {});
-
       const saved = useTvBoxStore.getState().source;
-      upsertConfigCard({
-        name: saved?.name || fileName,
-        path,
-        url: `file://${path}`,
-        sites: saved?.sites.length ?? 0,
-        lives: saved?.lives.length ?? 0,
-        parses: saved?.parses?.length ?? 0,
-        spider: saved?.spider,
+      
+      import("../../lib/configRecords").then(({ scanAndSyncConfigsRecord }) => {
+         const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
+         scanAndSyncConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).then(synced => {
+             useConfigCardsStore.getState().importCards(synced);
+         });
       });
+
       const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
       const { writeConfigsRecord } = await import("../../lib/configRecords");
       await writeConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).catch(() => {});
-
-      setUrlInput(`file://${path}`);
       addToast({ type: "success", message: `已保存到 ${path}` });
       useTvBoxStore.getState().setDirty(false);
       useTvBoxStore.getState().setSourcePath(path);
     } catch (e) {
       addToast({ type: "error", message: `保存失败: ${e}` });
     }
-  }, [getJson, source?.path, sourcePath, upsertConfigCard, addToast]);
+  }, [sourcePath, source?.path, upsertConfigCard, addToast]);
 
-  const sourceCounts = source
-    ? {
-        sites: source.sites.length,
-        lives: source.lives.length,
-        parses: source.parses?.length ?? 0,
-        doh: (source.doh?.length ?? 0) + (source.hosts?.length ?? 0),
-        ads: source.ads?.length ?? 0,
-        flags: source.flags?.length ?? 0,
-        ijk: source.ijk?.length ?? 0,
-        rules: source.rules?.length ?? 0,
+  // ── 另存为 ──
+  const handleSaveAs = useCallback(async () => {
+    const subDir = getSubDir();
+    const rawName = saveAsName.trim().replace(/\.json$/i, "");
+    if (!rawName) {
+      addToast({ type: "warning", message: "请输入文件名" });
+      return;
+    }
+
+    let targetDir = subDir;
+    if (!targetDir) {
+      // 没有已知子目录，弹出系统文件保存框
+      try {
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        const chosen = await save({
+          filters: [{ name: "JSON", extensions: ["json"] }],
+          defaultPath: `${rawName}.json`,
+        });
+        if (!chosen) return;
+        targetDir = chosen.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
+        const newPath = chosen;
+        const json = getJson();
+        await tauriWriteFile(newPath, json);
+        
+      import("../../lib/configRecords").then(({ scanAndSyncConfigsRecord }) => {
+         const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
+         scanAndSyncConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).then(synced => {
+             useConfigCardsStore.getState().importCards(synced);
+         });
+      });
+
+        setShowSaveAs(false);
+        setSaveAsName("");
+        addToast({ type: "success", message: `已另存为 ${newPath}` });
+        useTvBoxStore.getState().setSourcePath(newPath);
+        useTvBoxStore.getState().setDirty(false);
+        return;
+      } catch (e) {
+        addToast({ type: "error", message: `另存为失败: ${e}` });
+        return;
       }
-    : null;
+    }
 
-  // 活跃配置相关信息
-  const activeConfigName = source?.name || (urlInput ? urlInput.split(/[\\/]/).pop() : "当前未命名配置");
-  const isCurrentLocal = urlInput.startsWith("file://") || (!urlInput.startsWith("http://") && !urlInput.startsWith("https://"));
+    const newPath = `${targetDir}/${rawName}.json`;
+    const json = getJson();
+    try {
+      const { setServerResourceDir, serverCache } = await import("../../lib/tauri");
+      await tauriWriteFile(newPath, json);
+      await setServerResourceDir(targetDir).catch(() => {});
+      await serverCache("tvbox.json", json).catch(() => {});
+      
+      import("../../lib/configRecords").then(({ scanAndSyncConfigsRecord }) => {
+         const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
+         scanAndSyncConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).then(synced => {
+             useConfigCardsStore.getState().importCards(synced);
+         });
+      });
 
-  // 切换器过滤
-  const filteredSwitcherCards = cards.filter((c) => {
-    if (!switcherSearch.trim()) return true;
-    const q = switcherSearch.toLowerCase();
-    return c.name.toLowerCase().includes(q) || (c.url || c.path).toLowerCase().includes(q);
-  });
+      const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
+      const { writeConfigsRecord } = await import("../../lib/configRecords");
+      await writeConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).catch(() => {});
+      setShowSaveAs(false);
+      setSaveAsName("");
+      addToast({ type: "success", message: `已另存为 ${rawName}.json` });
+      useTvBoxStore.getState().setSourcePath(newPath);
+      useTvBoxStore.getState().setDirty(false);
+    } catch (e) {
+      addToast({ type: "error", message: `另存为失败: ${e}` });
+    }
+  }, [saveAsName, getJson, getSubDir, source, upsertConfigCard, addToast]);
 
+  // ── 统计数 ──
+  const sourceCounts = source ? {
+    sites: source.sites.length,
+    lives: source.lives.length,
+    parses: source.parses?.length ?? 0,
+    doh: (source.doh?.length ?? 0) + (source.hosts?.length ?? 0),
+    ads: source.ads?.length ?? 0,
+    flags: source.flags?.length ?? 0,
+    ijk: source.ijk?.length ?? 0,
+    rules: source.rules?.length ?? 0,
+  } : null;
+
+  const isCurrentLocal = sourceUrl.startsWith("file://") ||
+    (!sourceUrl.startsWith("http://") && !sourceUrl.startsWith("https://"));
+
+  // ── 渲染 ──
   return (
     <div className="flex flex-col h-full">
-      {/* 顶部综合工具栏 */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card flex-shrink-0">
-        {/* 如果配置已加载：显示当前配置指示胶囊与快速切换下拉器 */}
-        {source ? (
-          <div className="relative" ref={switcherRef}>
-            <button
-              onClick={() => setShowSwitcher(!showSwitcher)}
-              className={cn(
-                "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-border bg-background hover:bg-muted/50 text-xs font-medium transition-colors max-w-xs sm:max-w-sm",
-                showSwitcher && "ring-1 ring-primary border-primary"
-              )}
-              title="点击快速切换配置"
-            >
-              {isCurrentLocal ? (
-                <HardDrive className="h-3.5 w-3.5 text-yellow-500 flex-shrink-0" />
-              ) : (
-                <Globe className="h-3.5 w-3.5 text-blue-500 flex-shrink-0" />
-              )}
-              <span className="truncate text-foreground font-semibold">{activeConfigName}</span>
-              <Badge variant={isCurrentLocal ? "warning" : "default"} className="text-[10px] px-1.5 py-0 flex-shrink-0">
-                {isCurrentLocal ? "本地" : "网络"}
-              </Badge>
-              {isDirty && (
-                <span className="w-2 h-2 rounded-full bg-yellow-500 flex-shrink-0 animate-pulse" title="有未保存修改" />
-              )}
-              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground ml-auto flex-shrink-0" />
-            </button>
 
-            {/* 快速切换下拉菜单 */}
-            {showSwitcher && (
-              <div className="absolute left-0 top-full mt-1.5 w-84 sm:w-96 rounded-xl border border-border bg-card text-card-foreground p-2.5 shadow-2xl z-50 text-xs">
-                <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
-                  <div className="flex items-center gap-1.5 font-semibold text-foreground">
-                    <Layers className="h-3.5 w-3.5 text-primary" />
-                    <span>快速切换配置</span>
-                    <span className="text-[10px] text-muted-foreground font-normal">({cards.length})</span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setShowSwitcher(false);
-                      handleSafeSwitch(clearSource);
-                    }}
-                    className="text-primary hover:underline text-[11px] flex items-center gap-1 font-medium"
-                  >
-                    配置中心 &rarr;
-                  </button>
-                </div>
-
-                {/* 快速搜索 */}
-                <div className="relative mb-2">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                  <input
-                    value={switcherSearch}
-                    onChange={(e) => setSwitcherSearch(e.target.value)}
-                    placeholder="按名称或路径快速检索..."
-                    className="w-full pl-8 pr-2.5 py-1.5 text-xs rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-
-                {/* 配置项列表 */}
-                <div className="max-h-60 overflow-y-auto space-y-1">
-                  {filteredSwitcherCards.map((card) => {
-                    const isPathMatch =
-                      (card.url && card.url === urlInput) ||
-                      (card.path && (card.path === urlInput || `file://${card.path}` === urlInput));
-                    const isTargetActive =
-                      isPathMatch &&
-                      (card.name === activeConfigName ||
-                        !filteredSwitcherCards.some(
-                          (c) =>
-                            c.name === activeConfigName &&
-                            ((c.url && c.url === urlInput) ||
-                              (c.path && (c.path === urlInput || `file://${c.path}` === urlInput)))
-                        ));
-                    return (
-                      <button
-                        key={card.id}
-                        onClick={() => {
-                          setShowSwitcher(false);
-                          if (!isTargetActive) {
-                            handleSafeSwitch(() => handleCardSelect(card.url || card.path));
-                          }
-                        }}
-                        className={cn(
-                          "w-full text-left p-2 rounded-lg flex items-center justify-between gap-2 transition-colors border",
-                          isTargetActive
-                            ? "bg-primary/10 text-primary font-semibold border-primary/30"
-                            : "hover:bg-muted text-foreground border-transparent"
-                        )}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs flex items-center gap-1.5">
-                            <span className="truncate">{card.name}</span>
-                            {card.path && (
-                              <span className="text-[9px] px-1 py-0 rounded bg-muted text-muted-foreground flex-shrink-0">本地</span>
-                            )}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground font-mono truncate">{card.url || card.path}</div>
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0 text-[10px] text-muted-foreground">
-                          <span>{card.sites ?? 0}点播</span>
-                          {isTargetActive && <Check className="h-3.5 w-3.5 text-primary" />}
-                        </div>
-                      </button>
-                    );
-                  })}
-                  {filteredSwitcherCards.length === 0 && (
-                    <div className="py-5 text-center text-muted-foreground text-xs">
-                      无匹配的配置
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : null}
-
-        {/* URL 输入区 */}
-        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <Link className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-          <Input
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleLoad()}
-            placeholder="输入TVBox JSON配置链接，或拖入本地文件..."
-            className="flex-1 text-xs font-mono"
-          />
-        </div>
-
-        {/* 操作按钮组 */}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <Button
-            variant="primary"
-            onClick={handleLoad}
-            loading={loading}
-            icon={<RefreshCw className="h-3.5 w-3.5" />}
-          >
-            加载
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleLoadFile}
-            icon={<Upload className="h-3.5 w-3.5" />}
-          >
-            打开
-          </Button>
-          <Button
-            variant={source ? "outline" : "primary"}
-            onClick={() => handleSafeSwitch(clearSource)}
-            icon={<Layers className="h-3.5 w-3.5" />}
-            title="返回多配置管理中心"
-          >
-            配置中心
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setShowHistory(true)}
-            icon={<Clock className="h-3.5 w-3.5" />}
-            title="历史记录"
-          />
-          <div className="h-5 w-px bg-border" />
-          <Button
-            variant="outline"
-            onClick={() => setShowMerge(true)}
-            disabled={!source}
-            icon={<Merge className="h-3.5 w-3.5" />}
-          >
-            合并
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => handleSaveLocal(false)}
-            disabled={!source}
-            icon={<Download className="h-3.5 w-3.5" />}
-            title="直接保存到当前文件 (Ctrl+S)"
-          >
-            保存
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => handleSaveLocal(true)}
-            disabled={!source}
-            className="px-2 text-xs"
-            title="另存为新文件 (Ctrl+Shift+S)"
-          >
-            另存为
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setShowLocalize(true)}
-            disabled={!source}
-            title="资源本地化"
-            icon={<HardDrive className="h-3.5 w-3.5" />}
-          >
-            本地化
-          </Button>
-          <Button
-            variant={isDirty ? "primary" : "outline"}
-            onClick={() => setShowPublish(true)}
-            disabled={!source}
-            icon={<Shield className="h-3.5 w-3.5" />}
-          >
-            发布
-          </Button>
-        </div>
-      </div>
-
-      {/* 未加载状态：多配置管理中心 */}
+      {/* 未加载状态：配置管理中心 */}
       {!source && !loading && (
         <ConfigManagerView
           onSelect={handleCardSelect}
-          onOpenLocalFileDialog={handleLoadFile}
+          onOpenLocalFileDialog={handleOpenLocalFile}
         />
       )}
 
@@ -570,9 +395,95 @@ export function ConfigPage() {
         </div>
       )}
 
-      {/* 主内容区（8 个 Tab 规则编辑） */}
+      {/* 工作区 */}
       {source && !loading && (
         <div className="flex-1 flex flex-col overflow-hidden">
+
+          {/* 工作区顶部状态栏 */}
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card flex-shrink-0">
+            {/* 配置名称 + 类型徽章 */}
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              {isCurrentLocal
+                ? <HardDrive className="h-3.5 w-3.5 text-yellow-500 flex-shrink-0" />
+                : <Globe className="h-3.5 w-3.5 text-blue-400 flex-shrink-0" />
+              }
+              {isCurrentLocal && siblingConfigs.length > 1 ? (
+                <select
+                  className="text-sm font-semibold text-foreground bg-transparent border-none outline-none focus:ring-0 cursor-pointer max-w-[200px] truncate pr-4 appearance-none hover:text-primary transition-colors"
+                  style={{ background: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E") no-repeat right center / 1.25rem 1.25rem` }}
+                  value={sourceUrl.split(/[\\/]/).pop()}
+                  onChange={(e) => {
+                    const fileName = e.target.value;
+                    const subDir = getSubDir();
+                    const targetPath = `${subDir}/${fileName}`;
+                    handleCardSelect(`file://${targetPath}`, activeTab, activeProject?.id, targetPath);
+                  }}
+                  title="切换同目录下的配置"
+                >
+                  {siblingConfigs.map((c: string) => (
+                    <option key={c} value={c} className="text-foreground bg-background">
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-sm font-semibold truncate text-foreground">
+                  {source.name || sourceUrl.split(/[\\/]/).pop() || "未命名配置"}
+                </span>
+              )}
+              <Badge
+                variant={isCurrentLocal ? "warning" : "default"}
+                className="text-[10px] px-1.5 py-0 flex-shrink-0"
+              >
+                {isCurrentLocal ? "本地" : "网络"}
+              </Badge>
+              {isDirty && (
+                <span
+                  className="flex items-center gap-1 text-[11px] text-yellow-600 dark:text-yellow-400 flex-shrink-0"
+                  title="有未保存修改"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
+                  未保存
+                </span>
+              )}
+            </div>
+
+            {/* 操作按钮 */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <Button variant="outline" size="sm"
+                onClick={() => setShowMerge(true)}
+                icon={<Merge className="h-3.5 w-3.5" />}>
+                合并
+              </Button>
+              <Button variant="outline" size="sm"
+                onClick={handleSave}
+                icon={<Download className="h-3.5 w-3.5" />}
+                title="保存">
+                保存
+              </Button>
+              <Button variant="ghost" size="sm"
+                onClick={() => { setSaveAsName(""); setShowSaveAs(true); }}
+                title="另存为">
+                另存为
+              </Button>
+              {!isCurrentLocal && (
+                <Button variant="outline" size="sm"
+                  onClick={() => setShowLocalize(true)}
+                  icon={<HardDrive className="h-3.5 w-3.5" />}
+                  title="资源本地化">
+                  本地化
+                </Button>
+              )}
+              <Button
+                variant={isDirty ? "primary" : "outline"}
+                size="sm"
+                onClick={() => setShowPublish(true)}
+                icon={<Shield className="h-3.5 w-3.5" />}>
+                发布
+              </Button>
+            </div>
+          </div>
+
           {/* Tab 标签栏 */}
           <div className="flex items-center gap-0.5 px-2 pt-1.5 border-b border-border bg-card flex-shrink-0 overflow-x-auto">
             {TABS.map(({ id, label, icon: Icon }) => {
@@ -602,14 +513,6 @@ export function ConfigPage() {
                 </button>
               );
             })}
-
-            {/* 脏标记提示 */}
-            {isDirty && (
-              <div className="ml-auto flex items-center gap-1.5 pr-2 text-xs text-yellow-600 dark:text-yellow-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
-                未保存的修改
-              </div>
-            )}
           </div>
 
           {/* Tab 内容 */}
@@ -627,16 +530,36 @@ export function ConfigPage() {
         </div>
       )}
 
-      {/* 弹窗组件 */}
+      {/* 弹窗 */}
       <MergeDialog open={showMerge} onClose={() => setShowMerge(false)} />
-      <SaveDialog open={showSave} onClose={() => setShowSave(false)} />
       <PublishDialog open={showPublish} onClose={() => setShowPublish(false)} />
       <LocalizeDialog open={showLocalize} onClose={() => setShowLocalize(false)} sourceUrl={sourceUrl} />
-      <HistoryDialog
-        open={showHistory}
-        onClose={() => setShowHistory(false)}
-        onSelect={(url) => { setUrlInput(url); setShowHistory(false); }}
-      />
+
+      {/* 另存为弹窗 */}
+      <Dialog open={showSaveAs} onClose={() => setShowSaveAs(false)} title="另存为" size="sm">
+        <div className="space-y-4 p-1">
+          <div className="text-xs text-muted-foreground">
+            将保存到配置的同级目录：
+            <span className="font-mono ml-1 text-foreground">
+              {getSubDir() || "（未知，将弹出系统保存框）"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              value={saveAsName}
+              onChange={(e) => setSaveAsName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSaveAs()}
+              placeholder="输入文件名（不含 .json）"
+              autoFocus
+            />
+            <span className="text-sm text-muted-foreground flex-shrink-0">.json</span>
+          </div>
+          <div className="flex justify-end gap-2 pt-1 border-t border-border">
+            <Button variant="outline" size="sm" onClick={() => setShowSaveAs(false)}>取消</Button>
+            <Button variant="primary" size="sm" onClick={handleSaveAs}>保存</Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }

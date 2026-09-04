@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::{header, HeaderValue},
     response::{IntoResponse, Response},
     routing::get,
@@ -48,7 +48,6 @@ pub async fn run(port: u16) {
         .route("/playlist.txt",  get(playlist_txt_handler))
         .route("/playlist.m3u",  get(playlist_m3u_handler))
         .route("/playlist.m3u8", get(playlist_m3u_handler))
-        .route("/files/{*path}", get(file_handler))
         .fallback(get(fallback_handler))
         .with_state(cache);
 
@@ -115,27 +114,6 @@ fn mime_from_path(path: &str) -> &'static str {
     }
 }
 
-async fn file_handler(
-    State(cache): State<SharedCache>,
-    Path(path): Path<String>,
-) -> impl IntoResponse {
-    let root = cache.read().await.resource_dir.clone();
-    let requested = std::path::Path::new(&path);
-    if requested.components().any(|component| matches!(component, std::path::Component::ParentDir)) {
-        return error_response(axum::http::StatusCode::BAD_REQUEST, "invalid path");
-    }
-    let full_path = std::path::Path::new(&root).join(requested);
-    match tokio::fs::read(&full_path).await {
-        Ok(bytes) => {
-            let ct = mime_from_path(&path);
-            let mut response = Response::new(bytes.into());
-            response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(ct));
-            response.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
-            response
-        }
-        Err(_) => error_response(axum::http::StatusCode::NOT_FOUND, "not found"),
-    }
-}
 
 async fn fallback_handler(
     State(cache): State<SharedCache>,

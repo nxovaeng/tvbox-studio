@@ -24,7 +24,7 @@ export function ConfigPreviewModal({ open, card, onClose, onOpenInEditor }: Prop
   const [sourceData, setSourceData] = useState<TvBoxSource | null>(null);
   const [activeTab, setActiveTab] = useState<"summary" | "sites" | "lives" | "raw">("summary");
 
-  const targetPath = card?.url || card?.path || "";
+  const targetPath = card ? `${card.projectName}/${card.defaultConfig}` : "";
 
   useEffect(() => {
     if (!open || !targetPath) {
@@ -73,7 +73,7 @@ export function ConfigPreviewModal({ open, card, onClose, onOpenInEditor }: Prop
     <Dialog
       open={open}
       onClose={onClose}
-      title={`快速预览: ${card.name}`}
+      title={`快速预览: ${card.projectName}`}
       description={targetPath}
       size="lg"
     >

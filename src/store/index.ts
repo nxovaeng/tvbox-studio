@@ -10,6 +10,7 @@ import type {
 } from "../types/tvbox";
 import { DEFAULT_SETTINGS, type TvBoxVod, type TvBoxLive, type TvBoxParse } from "../types/tvbox";
 import { deepClone, mergeTvBoxSources, genId, parseJsonc } from "../lib/utils";
+import { serializeTvBoxSource } from "../lib/localize";
 
 // ============================================================
 // 应用全局 UI 状态
@@ -18,10 +19,13 @@ interface UIState {
   activeNav: "config" | "playlist" | "editor" | "settings";
   theme: "light" | "dark" | "system";
   sidebarCollapsed: boolean;
+  /** 当前在工作区打开的配置卡片 ID，用于侧边栏高亮 */
+  activeConfigId: string | null;
   toasts: ToastItem[];
   setActiveNav: (nav: UIState["activeNav"]) => void;
   setTheme: (theme: UIState["theme"]) => void;
   setSidebarCollapsed: (v: boolean) => void;
+  setActiveConfigId: (id: string | null) => void;
   addToast: (toast: Omit<ToastItem, "id">) => void;
   removeToast: (id: string) => void;
 }
@@ -37,10 +41,12 @@ export const useUIStore = create<UIState>((set) => ({
   activeNav: "config",
   theme: "system",
   sidebarCollapsed: false,
+  activeConfigId: null,
   toasts: [],
   setActiveNav: (nav) => set({ activeNav: nav }),
   setTheme: (theme) => set({ theme }),
   setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
+  setActiveConfigId: (id) => set({ activeConfigId: id }),
   addToast: (toast) => {
     const id = genId();
     set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }));
@@ -88,10 +94,11 @@ interface TvBoxState {
 }
 
 export interface ConfigCard {
-  id: string;
-  name: string;
-  path: string;
-  url: string;
+  id: string; // Typically the projectName
+  projectName: string; // The dedicated directory name
+  defaultConfig: string; // The default config file, e.g. 'tvbox.json'
+  configs: string[]; // List of available config files in this directory
+
   updatedAt: number;
   sites?: number;
   lives?: number;
@@ -119,7 +126,7 @@ export const useConfigCardsStore = create<ConfigCardsState>()(
       cards: [],
       upsert: (card) => {
         const id = card.id ?? genId();
-        const existing = get().cards.find((item) => item.id === id || (card.path && item.path === card.path));
+        const existing = get().cards.find((item) => item.id === id);
         const next: ConfigCard = {
           ...existing,
           ...card,
@@ -129,7 +136,7 @@ export const useConfigCardsStore = create<ConfigCardsState>()(
         set({
           cards: [
             next,
-            ...get().cards.filter((item) => item.id !== id && (card.path ? item.path !== card.path : true)),
+            ...get().cards.filter((item) => item.id !== id),
           ].slice(0, 100),
         });
       },
@@ -158,7 +165,7 @@ export const useConfigCardsStore = create<ConfigCardsState>()(
         const newCard: ConfigCard = {
           ...target,
           id: genId(),
-          name: `${target.name} (副本)`,
+          projectName: `${target.projectName}_copy`,
           updatedAt: Date.now(),
         };
         set({ cards: [newCard, ...get().cards] });
@@ -349,9 +356,7 @@ export const useTvBoxStore = create<TvBoxState>((set, get) => ({
   getJson: () => {
     const src = get().source;
     if (!src) return "";
-    // 过滤掉以 _ 开头的前端扩展字段
-    const clean = JSON.parse(JSON.stringify(src, (k, v) => (k.startsWith("_") ? undefined : v)));
-    return JSON.stringify(clean, null, 2);
+    return serializeTvBoxSource(src);
   },
 }));
 

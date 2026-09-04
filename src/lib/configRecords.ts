@@ -19,7 +19,54 @@ export async function readConfigsRecord(rootSaveDir?: string): Promise<ConfigCar
     if (!text || !text.trim()) return [];
     const data = JSON.parse(text);
     if (Array.isArray(data)) {
-      return data;
+      // 自动迁移旧格式
+      const migrated = new Map<string, ConfigCard>();
+      for (const item of data) {
+        if (item.projectName && Array.isArray(item.configs)) {
+          migrated.set(item.projectName, item);
+          continue;
+        }
+        
+        // Old item migration
+        let p = item.path || (item.url ? item.url.replace("file://", "") : "");
+        p = p.replace(/\\/g, "/");
+        if (p) {
+          const parts = p.split("/");
+          const fileName = parts.pop() || "tvbox.json";
+          const projName = parts.pop() || "default";
+          
+          if (!migrated.has(projName)) {
+            migrated.set(projName, {
+              id: projName,
+              projectName: projName,
+              defaultConfig: fileName,
+              configs: [fileName],
+              updatedAt: item.updatedAt || Date.now(),
+              sites: item.sites,
+              lives: item.lives,
+              parses: item.parses,
+              spider: item.spider,
+              description: item.description,
+              tags: item.tags,
+              favorite: item.favorite,
+            });
+          } else {
+             const exist = migrated.get(projName)!;
+             if (!exist.configs.includes(fileName)) {
+               exist.configs.push(fileName);
+             }
+             if (item.updatedAt > exist.updatedAt) {
+               exist.updatedAt = item.updatedAt;
+               exist.sites = item.sites;
+               exist.lives = item.lives;
+               exist.parses = item.parses;
+               exist.spider = item.spider;
+               exist.defaultConfig = fileName;
+             }
+          }
+        }
+      }
+      return Array.from(migrated.values());
     }
   } catch {
     // 文件不存在或非标准JSON，静默忽略
@@ -57,10 +104,9 @@ export async function scanAndSyncConfigsRecord(
 
   // 合并已持久化记录和当前内存卡片
   const mergedMap = new Map<string, ConfigCard>();
-  currentCards.forEach((c) => mergedMap.set(c.path || c.id, c));
+  currentCards.forEach((c) => mergedMap.set(c.projectName, c));
   recordCards.forEach((c) => {
-    const key = c.path || c.id;
-    mergedMap.set(key, { ...mergedMap.get(key), ...c });
+    mergedMap.set(c.projectName, { ...mergedMap.get(c.projectName), ...c });
   });
 
   // 扫描数据根目录下的各个子目录
@@ -73,49 +119,40 @@ export async function scanAndSyncConfigsRecord(
 
       try {
         const subFiles = await listDir(entry.path);
-        for (const file of subFiles) {
-          if (file.is_dir || !file.name.endsWith(".json")) continue;
-          if (file.name === "configs.json") continue;
-
-          const configPath = `${root}/${subDirName}/${file.name}`;
-          const existing = Array.from(mergedMap.values()).find(
-            (c) => c.path === configPath || c.path === file.path
-          );
-
-          if (!existing) {
-            let sitesCount = 0;
-            let livesCount = 0;
-            let parsesCount = 0;
-            let spider: string | undefined;
-            let configName = file.name.replace(/\.json$/, "");
-            if (configName === "tvbox" || configName === "config") {
-              configName = subDirName;
-            }
-
-            try {
-              const content = await readFile(file.path);
-              const json = JSON.parse(content);
-              sitesCount = json.sites?.length ?? 0;
-              livesCount = json.lives?.length ?? 0;
-              parsesCount = json.parses?.length ?? 0;
-              spider = json.spider;
-              if (json.name) configName = json.name;
-            } catch {}
-
-            const newCard: ConfigCard = {
-              id: `${subDirName}_${Date.now()}`,
-              name: configName,
-              path: configPath,
-              url: `file://${configPath}`,
-              updatedAt: file.modified ? file.modified * 1000 : Date.now(),
-              sites: sitesCount,
-              lives: livesCount,
-              parses: parsesCount,
-              spider,
-            };
-            mergedMap.set(configPath, newCard);
-          }
+        const jsonFiles = subFiles.filter(f => !f.is_dir && f.name.endsWith(".json") && f.name !== "configs.json");
+        
+        if (jsonFiles.length === 0) continue;
+        
+        const configs = jsonFiles.map(f => f.name);
+        
+        let existing = mergedMap.get(subDirName);
+        if (!existing) {
+           existing = {
+             id: subDirName,
+             projectName: subDirName,
+             defaultConfig: configs.includes("tvbox.json") ? "tvbox.json" : configs[0],
+             configs,
+             updatedAt: 0
+           };
+           mergedMap.set(subDirName, existing);
+        } else {
+           existing.configs = Array.from(new Set([...existing.configs, ...configs]));
+           if (!existing.configs.includes(existing.defaultConfig)) {
+             existing.defaultConfig = existing.configs.includes("tvbox.json") ? "tvbox.json" : existing.configs[0];
+           }
         }
+        
+        // Parse the default config to get latest stats
+        const defFile = jsonFiles.find(f => f.name === existing!.defaultConfig) || jsonFiles[0];
+        try {
+           const content = await readFile(defFile.path);
+           const json = JSON.parse(content);
+           existing.sites = json.sites?.length ?? 0;
+           existing.lives = json.lives?.length ?? 0;
+           existing.parses = json.parses?.length ?? 0;
+           existing.spider = json.spider;
+           existing.updatedAt = defFile.modified ? defFile.modified * 1000 : Date.now();
+        } catch {}
       } catch {}
     }
   } catch {}

@@ -13,16 +13,16 @@ interface Props {
 }
 
 export function ConfigEditModal({ open, card, onClose, onSave }: Props) {
-  const [name, setName] = useState("");
-  const [path, setPath] = useState("");
+  const [projectName, setProjectName] = useState("");
+  const [defaultConfig, setDefaultConfig] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState("");
 
   useEffect(() => {
     if (card) {
-      setName(card.name);
-      setPath(card.url || card.path);
+      setProjectName(card.projectName);
+      setDefaultConfig(card.defaultConfig);
       setDescription(card.description || "");
       setTags(card.tags || []);
     }
@@ -43,11 +43,9 @@ export function ConfigEditModal({ open, card, onClose, onSave }: Props) {
   };
 
   const handleSave = () => {
-    if (!name.trim()) return;
+    
     onSave(card.id, {
-      name: name.trim(),
-      path: path.trim(),
-      url: path.trim(),
+      
       description: description.trim(),
       tags,
     });
@@ -58,19 +56,19 @@ export function ConfigEditModal({ open, card, onClose, onSave }: Props) {
     <Dialog open={open} onClose={onClose} title="编辑配置信息" size="md">
       <div className="space-y-4 p-1">
         <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-foreground">配置名称 *</label>
+          <label className="text-xs font-semibold text-foreground">项目名称 (只读)</label>
           <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="输入配置显示名称"
+            value={projectName}
+            readOnly
+            
           />
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-foreground">配置路径 / 订阅 URL</label>
+          <label className="text-xs font-semibold text-foreground">默认配置文件 (只读)</label>
           <Input
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
+            value={defaultConfig}
+            readOnly
             placeholder="例如: https://... 或 file://..."
             className="font-mono text-xs"
           />

@@ -1,3 +1,4 @@
+import { useSettingsStore } from "../../../store";
 import React, { useState } from "react";
 import type { ConfigCard } from "../../../store";
 import { Badge } from "../../ui/Badge";
@@ -12,7 +13,7 @@ interface Props {
   card: ConfigCard;
   selected: boolean;
   onToggleSelect: (id: string) => void;
-  onOpen: (target: string, tab?: "sites" | "lives" | "parses" | "basic") => void;
+  onOpen: (target: string, tab?: "sites" | "lives" | "parses" | "basic", cardId?: string) => void;
   onPreview: (card: ConfigCard) => void;
   onEdit: (card: ConfigCard) => void;
   onDuplicate: (id: string) => void;
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export function ConfigCardItem({
+
   card,
   selected,
   onToggleSelect,
@@ -31,11 +33,13 @@ export function ConfigCardItem({
   onToggleFavorite,
   onDelete,
 }: Props) {
+  const { settings } = useSettingsStore();
+  const rootSaveDir = (settings.saveDir || "./box").replace(/\/+$/, "");
   const [copied, setCopied] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
 
-  const isLocal = card.url.startsWith("file://") || (!card.url.startsWith("http://") && !card.url.startsWith("https://"));
-  const targetPath = card.url || card.path;
+  const isLocal = true;
+  const targetPath = `${rootSaveDir}/${card.projectName}/${card.defaultConfig}`;
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -157,11 +161,11 @@ export function ConfigCardItem({
         <div>
           <div className="flex items-start justify-between gap-2">
             <h3
-              onClick={() => onOpen(targetPath, "basic")}
+              onClick={() => onOpen(`file://${targetPath}`, "basic", card.id)}
               className="font-semibold text-sm hover:text-primary cursor-pointer transition-colors line-clamp-1 flex-1"
-              title={card.name}
+              title={card.projectName}
             >
-              {card.name}
+              {card.projectName}
             </h3>
           </div>
 
@@ -190,7 +194,7 @@ export function ConfigCardItem({
         {/* 统计指标网格 */}
         <div className="grid grid-cols-3 gap-1.5 p-2 rounded-lg bg-muted/40 border border-border/40 text-center">
           <div
-            onClick={() => onOpen(targetPath, "sites")}
+            onClick={() => onOpen(`file://${targetPath}`, "sites", card.id)}
             className="cursor-pointer hover:bg-background/80 rounded p-1 transition-colors"
             title="查看点播爬虫"
           >
@@ -201,7 +205,7 @@ export function ConfigCardItem({
           </div>
 
           <div
-            onClick={() => onOpen(targetPath, "lives")}
+            onClick={() => onOpen(`file://${targetPath}`, "lives", card.id)}
             className="cursor-pointer hover:bg-background/80 rounded p-1 transition-colors"
             title="查看直播频道"
           >
@@ -212,7 +216,7 @@ export function ConfigCardItem({
           </div>
 
           <div
-            onClick={() => onOpen(targetPath, "parses")}
+            onClick={() => onOpen(`file://${targetPath}`, "parses", card.id)}
             className="cursor-pointer hover:bg-background/80 rounded p-1 transition-colors"
             title="查看解析接口"
           >
@@ -253,7 +257,7 @@ export function ConfigCardItem({
             variant="primary"
             size="sm"
             className="h-7 px-2.5 text-xs font-medium"
-            onClick={() => onOpen(targetPath, "basic")}
+            onClick={() => onOpen(`file://${targetPath}`, "basic", card.id)}
             icon={<ExternalLink className="h-3 w-3" />}
           >
             进入工作区

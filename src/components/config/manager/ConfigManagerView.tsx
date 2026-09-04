@@ -8,15 +8,15 @@ import {
 import {
   scanAndSyncConfigsRecord,
   writeConfigsRecord,
-  getConfigsRecordPath,
 } from "../../../lib/configRecords";
+import { serializeTvBoxSource } from "../../../lib/localize";
 import { Button } from "../../ui/Button";
 import { Input } from "../../ui/Input";
-import { Badge } from "../../ui/Badge";
+import { cn } from "../../../lib/utils";
 import {
-  Search, Plus, Upload, FolderOpen, Star, Globe, HardDrive,
+  Search, Plus, FolderOpen, Star, Globe, HardDrive,
   LayoutGrid, List, Layers, Trash2, ArrowUpDown, RefreshCw,
-  Film, Radio, Download, Sparkles, Filter,
+  Film, Radio, Download,
 } from "lucide-react";
 import { ConfigCardItem } from "./ConfigCardItem";
 import { ConfigListItem } from "./ConfigListItem";
@@ -29,13 +29,14 @@ interface Props {
   onSelect: (
     url: string,
     tab?: "sites" | "lives" | "parses" | "basic",
+    cardId?: string,
     targetPath?: string,
     customName?: string
   ) => void;
   onOpenLocalFileDialog: () => void;
 }
 
-type ScopeFilter = "all" | "favorite" | "local" | "remote";
+type ScopeFilter = "all" | "favorite";
 type SortOption = "updated" | "name" | "sites" | "lives";
 
 export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
@@ -67,7 +68,7 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
       if (synced && synced.length > 0) {
         importCards(synced);
       }
-      addToast({ type: "success", message: `已从 ${getConfigsRecordPath(rootSaveDir)} 同步 (${synced.length} 个配置)` });
+      addToast({ type: "success", message: `已从根目录同步 ${synced.length} 个配置` });
     } catch (e) {
       addToast({ type: "error", message: `同步根目录记录失败: ${e}` });
     } finally {
@@ -93,22 +94,20 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
   // 统计概览数据
   const stats = useMemo(() => {
     const total = cards.length;
-    let localCount = 0;
-    let remoteCount = 0;
+    
     let favoriteCount = 0;
     let totalSites = 0;
     let totalLives = 0;
 
     cards.forEach((c) => {
-      const isLocal = c.url.startsWith("file://") || (!c.url.startsWith("http://") && !c.url.startsWith("https://"));
-      if (isLocal) localCount++;
-      else remoteCount++;
+      
+      
       if (c.favorite) favoriteCount++;
       totalSites += c.sites ?? 0;
       totalLives += c.lives ?? 0;
     });
 
-    return { total, localCount, remoteCount, favoriteCount, totalSites, totalLives };
+    return { total,  favoriteCount, totalSites, totalLives };
   }, [cards]);
 
   // 过滤与排序结果
@@ -118,18 +117,17 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
         // 搜索过滤
         if (search.trim()) {
           const q = search.toLowerCase();
-          const matchName = card.name.toLowerCase().includes(q);
-          const matchPath = (card.url || card.path).toLowerCase().includes(q);
+          const matchName = card.projectName.toLowerCase().includes(q);
+          
           const matchDesc = card.description?.toLowerCase().includes(q) ?? false;
           const matchTags = card.tags?.some((t) => t.toLowerCase().includes(q)) ?? false;
-          if (!matchName && !matchPath && !matchDesc && !matchTags) return false;
+          if (!matchName && !matchDesc && !matchTags) return false;
         }
 
         // 范围分类过滤
-        const isLocal = card.url.startsWith("file://") || (!card.url.startsWith("http://") && !card.url.startsWith("https://"));
+        
         if (scope === "favorite" && !card.favorite) return false;
-        if (scope === "local" && !isLocal) return false;
-        if (scope === "remote" && isLocal) return false;
+        
 
         // 标签过滤
         if (selectedTag && (!card.tags || !card.tags.includes(selectedTag))) {
@@ -140,7 +138,7 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
       })
       .sort((a, b) => {
         if (sortBy === "updated") return b.updatedAt - a.updatedAt;
-        if (sortBy === "name") return a.name.localeCompare(b.name, "zh-CN");
+        if (sortBy === "name") return a.projectName.localeCompare(b.projectName, "zh-CN");
         if (sortBy === "sites") return (b.sites ?? 0) - (a.sites ?? 0);
         if (sortBy === "lives") return (b.lives ?? 0) - (a.lives ?? 0);
         return 0;
@@ -196,72 +194,12 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
     const cloned = duplicateCard(id);
     if (cloned) {
       writeConfigsRecord(rootSaveDir, [cloned, ...cards]).catch(() => {});
-      addToast({ type: "success", message: `已成功创建配置副本: ${cloned.name}` });
+      addToast({ type: "success", message: `已成功创建配置副本: ${cloned.projectName}` });
     }
   };
 
   // 模板创建处理
-  const handleCreateFromTemplate = (
-    templateKey: string,
-    name: string,
-    targetPath: string,
-    _subDir: string
-  ) => {
-    let tplJson: import("../../../types/tvbox").TvBoxSource = {
-      name,
-      path: targetPath,
-      sites: [],
-      lives: [],
-    };
-    if (templateKey === "standard") {
-      tplJson = {
-        name,
-        path: targetPath,
-        spider: "./spider.jar",
-        sites: [],
-        lives: [
-          { name: "国内央卫直播", type: 0, url: "https://live.fanmingming.com/tv/m3u/ipv6.m3u" },
-        ],
-        flags: ["youku", "qq", "iqiyi", "qiyi", "letv", "sohu", "tudou", "pptv", "mgtv", "wasu"],
-        ads: ["mimg.0c1q0l.cn", "c.open.wo.cn"],
-      };
-    } else if (templateKey === "vod_spider") {
-      tplJson = {
-        name,
-        path: targetPath,
-        spider: "./spider.jar",
-        sites: [
-          { key: "csp_Douban", name: "豆瓣 · 推荐", type: 3, api: "csp_Douban", searchable: 0 },
-        ],
-        lives: [],
-      };
-    } else if (templateKey === "live_stream") {
-      tplJson = {
-        name,
-        path: targetPath,
-        sites: [],
-        lives: [
-          { name: "央视频道", type: 0, url: "https://live.fanmingming.com/tv/m3u/ipv6.m3u" },
-          { name: "卫视频道", type: 0, url: "https://live.fanmingming.com/tv/m3u/global.m3u" },
-        ],
-      };
-    }
-
-    const jsonStr = JSON.stringify(tplJson, null, 2);
-    const cardData = {
-      name,
-      path: targetPath,
-      url: `file://${targetPath}`,
-      sites: tplJson.sites.length,
-      lives: tplJson.lives.length,
-      spider: tplJson.spider,
-    };
-    upsert(cardData);
-    writeConfigsRecord(rootSaveDir, [cardData as ConfigCard, ...cards.filter(c => c.path !== targetPath)]).catch(() => {});
-    // 直接进入工作区并绑定本地保存路径
-    onSelect(`blank://${encodeURIComponent(jsonStr)}`, "basic", targetPath, name);
-    addToast({ type: "success", message: `已基于模板创建并关联保存路径: ${targetPath}` });
-  };
+  const handleCreateFromTemplate = () => {};
 
   return (
     <div className="flex-1 overflow-auto bg-background/50 p-4 md:p-6">
@@ -273,13 +211,9 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
               <Layers className="h-6 w-6 text-primary" />
               多配置管理中心
             </h1>
-            <div className="flex items-center flex-wrap gap-2 mt-1.5 text-[11px] font-mono">
-              <span className="bg-muted/50 text-muted-foreground px-2 py-0.5 rounded border border-border">
-                根目录: <strong className="text-foreground">{rootSaveDir}</strong>
-              </span>
-              <span className="bg-primary/10 text-primary px-2 py-0.5 rounded border border-primary/20">
-                多配置记录文件: <strong>{getConfigsRecordPath(rootSaveDir)}</strong>
-              </span>
+            <div className="flex items-center gap-1.5 mt-1 text-[11px] text-muted-foreground font-mono">
+              <HardDrive className="h-3 w-3 flex-shrink-0" />
+              <span className="truncate">{rootSaveDir}</span>
             </div>
           </div>
 
@@ -321,67 +255,21 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
           </div>
         </div>
 
-        {/* 统计指标卡片栏 */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="p-3 rounded-xl border border-border bg-card/60 shadow-sm flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10 text-primary">
-              <Layers className="h-4 w-4" />
+        {/* 统计概览 */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {[
+            { label: "全部配置", value: stats.total, color: "text-primary", bg: "bg-primary/10" },
+            
+            
+            { label: "收藏", value: stats.favoriteCount, color: "text-yellow-500", bg: "bg-yellow-400/10" },
+            { label: "点播源", value: stats.totalSites, color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-500/10" },
+            { label: "直播源", value: stats.totalLives, color: "text-green-600 dark:text-green-400", bg: "bg-green-500/10" },
+          ].map(({ label, value, color, bg }) => (
+            <div key={label} className={cn("flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border/50", bg)}>
+              <span className={cn("text-base font-bold leading-none", color)}>{value}</span>
+              <span className="text-[11px] text-muted-foreground">{label}</span>
             </div>
-            <div>
-              <div className="text-[11px] text-muted-foreground">总配置数</div>
-              <div className="text-base font-bold text-foreground">{stats.total}</div>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl border border-border bg-card/60 shadow-sm flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
-              <HardDrive className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-[11px] text-muted-foreground">本地配置</div>
-              <div className="text-base font-bold text-foreground">{stats.localCount}</div>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl border border-border bg-card/60 shadow-sm flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
-              <Globe className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-[11px] text-muted-foreground">远程订阅</div>
-              <div className="text-base font-bold text-foreground">{stats.remoteCount}</div>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl border border-border bg-card/60 shadow-sm flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-yellow-400/10 text-yellow-500">
-              <Star className="h-4 w-4 fill-yellow-500" />
-            </div>
-            <div>
-              <div className="text-[11px] text-muted-foreground">常用收藏</div>
-              <div className="text-base font-bold text-foreground">{stats.favoriteCount}</div>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl border border-border bg-card/60 shadow-sm flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400">
-              <Film className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-[11px] text-muted-foreground">累计点播源</div>
-              <div className="text-base font-bold text-foreground">{stats.totalSites}</div>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl border border-border bg-card/60 shadow-sm flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-green-500/10 text-green-600 dark:text-green-400">
-              <Radio className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-[11px] text-muted-foreground">累计直播源</div>
-              <div className="text-base font-bold text-foreground">{stats.totalLives}</div>
-            </div>
-          </div>
+          ))}
         </div>
 
         {/* 筛选、搜索与视图切换控制栏 */}
@@ -417,22 +305,7 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
               >
                 <Star className="h-3 w-3" /> 收藏
               </button>
-              <button
-                onClick={() => setScope("local")}
-                className={`px-2.5 py-1 rounded-md transition-colors ${
-                  scope === "local" ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                本地
-              </button>
-              <button
-                onClick={() => setScope("remote")}
-                className={`px-2.5 py-1 rounded-md transition-colors ${
-                  scope === "remote" ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                网络
-              </button>
+              
             </div>
 
             {/* 标签过滤 Chips */}
@@ -594,7 +467,7 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
                 card={card}
                 selected={selectedIds.has(card.id)}
                 onToggleSelect={handleToggleSelect}
-                onOpen={onSelect}
+                onOpen={(url, tab, cardId) => onSelect(url, tab, cardId)}
                 onPreview={(c) => setPreviewingCard(c)}
                 onEdit={(c) => setEditingCard(c)}
                 onDuplicate={handleDuplicate}
@@ -602,7 +475,7 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
                 onDelete={(id) => {
                   remove(id);
                   writeConfigsRecord(rootSaveDir, cards.filter(c => c.id !== id)).catch(() => {});
-                  addToast({ type: "success", message: `已移除配置: ${card.name}` });
+                  addToast({ type: "success", message: `已移除配置: ${card.projectName}` });
                 }}
               />
             ))}
@@ -631,7 +504,7 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
                   card={card}
                   selected={selectedIds.has(card.id)}
                   onToggleSelect={handleToggleSelect}
-                  onOpen={onSelect}
+                  onOpen={(url, tab, cardId) => onSelect(url, tab, cardId)}
                   onPreview={(c) => setPreviewingCard(c)}
                   onEdit={(c) => setEditingCard(c)}
                   onDuplicate={handleDuplicate}
@@ -639,7 +512,7 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
                   onDelete={(id) => {
                     remove(id);
                     writeConfigsRecord(rootSaveDir, cards.filter(c => c.id !== id)).catch(() => {});
-                    addToast({ type: "success", message: `已移除配置: ${card.name}` });
+                    addToast({ type: "success", message: `已移除配置: ${card.projectName}` });
                   }}
                 />
               ))}
@@ -675,22 +548,45 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
       <ConfigCreateModal
         open={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onCreateBlank={(name, targetPath, _subDir) => {
-          const blankJson = JSON.stringify({ name, path: targetPath, sites: [], lives: [] }, null, 2);
-          const cardData = { name, path: targetPath, url: `file://${targetPath}`, sites: 0, lives: 0 };
-          upsert(cardData);
-          writeConfigsRecord(rootSaveDir, [cardData as ConfigCard, ...cards.filter(c => c.path !== targetPath)]).catch(() => {});
-          onSelect(`blank://${encodeURIComponent(blankJson)}`, "basic", targetPath, name);
-          addToast({ type: "success", message: `已创建独立配置: ${targetPath}` });
+        onCreateBlank={async (projectName, targetPath, template) => {
+          try {
+            const { writeFile: writeLocal, setServerResourceDir, serverCache } = await import("../../../lib/tauri");
+            let initialJson = JSON.stringify({ sites: [], lives: [] }, null, 2);
+            if (template && template !== "empty") {
+              try {
+                const res = await fetch(`/templates/${template}.json`);
+                if (res.ok) initialJson = await res.text();
+              } catch {}
+            }
+            await writeLocal(targetPath, initialJson);
+            const dir = targetPath.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
+            await setServerResourceDir(dir).catch(() => {});
+            await serverCache("tvbox.json", initialJson).catch(() => {});
+            
+            const { scanAndSyncConfigsRecord } = await import("../../../lib/configRecords");
+            const synced = await scanAndSyncConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards);
+            if (synced && synced.length > 0) useConfigCardsStore.getState().importCards(synced);
+            
+            const newCard = synced.find(c => c.projectName === projectName);
+            if (newCard) onSelect(`file://${targetPath}`, "basic", newCard.id, targetPath);
+            addToast({ type: "success", message: `成功创建配置项目: ${projectName}` });
+          } catch (e) {
+            addToast({ type: "error", message: `创建失败: ${e}` });
+          }
         }}
-        onCreateFromTemplate={handleCreateFromTemplate}
-        onImportUrl={(url, name, targetPath, _subDir) => {
-          const cardData = { name, path: targetPath, url: `file://${targetPath}`, sites: 0, lives: 0 };
-          upsert(cardData);
-          writeConfigsRecord(rootSaveDir, [cardData as ConfigCard, ...cards.filter(c => c.path !== targetPath)]).catch(() => {});
-          onSelect(url, "basic", targetPath, name);
+        onImportUrl={async (url, projectName, targetPath) => {
+          try {
+            // Because handleCardSelect uses loadFromUrl which fetches and saves to targetPath
+            // We just need to trigger the selection! ConfigPage handles it.
+            // Wait, ConfigPage's handleCardSelect has a targetLocalPath argument.
+            // onSelect is onSelect(url, "basic", undefined, targetLocalPath, customName)
+            onSelect(url, "basic", undefined, targetPath, projectName);
+            addToast({ type: "success", message: `开始导入网络配置: ${url}` });
+          } catch (e) {
+            addToast({ type: "error", message: `导入启动失败: ${e}` });
+          }
         }}
-        onOpenLocalFile={onOpenLocalFileDialog}
+                        onOpenLocalFile={onOpenLocalFileDialog}
       />
 
       {/* 备份与恢复模态框 */}

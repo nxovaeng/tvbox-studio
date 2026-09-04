@@ -1,3 +1,4 @@
+import { useSettingsStore } from "../../../store";
 import React, { useState } from "react";
 import type { ConfigCard } from "../../../store";
 import { Badge } from "../../ui/Badge";
@@ -12,7 +13,7 @@ interface Props {
   card: ConfigCard;
   selected: boolean;
   onToggleSelect: (id: string) => void;
-  onOpen: (target: string, tab?: "sites" | "lives" | "parses" | "basic") => void;
+  onOpen: (target: string, tab?: "sites" | "lives" | "parses" | "basic", cardId?: string) => void;
   onPreview: (card: ConfigCard) => void;
   onEdit: (card: ConfigCard) => void;
   onDuplicate: (id: string) => void;
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export function ConfigListItem({
+
   card,
   selected,
   onToggleSelect,
@@ -31,11 +33,13 @@ export function ConfigListItem({
   onToggleFavorite,
   onDelete,
 }: Props) {
+  const { settings } = useSettingsStore();
+  const rootSaveDir = (settings.saveDir || "./box").replace(/\/+$/, "");
   const [copied, setCopied] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
 
-  const isLocal = card.url.startsWith("file://") || (!card.url.startsWith("http://") && !card.url.startsWith("https://"));
-  const targetPath = card.url || card.path;
+  const isLocal = true;
+  const targetPath = `${rootSaveDir}/${card.projectName}/${card.defaultConfig}`;
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -80,18 +84,18 @@ export function ConfigListItem({
         className="text-[10px] px-1.5 py-0.5 gap-1 flex-shrink-0"
       >
         {isLocal ? <HardDrive className="h-3 w-3" /> : <Globe className="h-3 w-3" />}
-        {isLocal ? "本地" : "网络"}
+        "项目"
       </Badge>
 
       {/* 名称与路径 */}
       <div className="flex-1 min-w-0 pr-2">
         <div className="flex items-center gap-2">
           <span
-            onClick={() => onOpen(targetPath, "basic")}
+            onClick={() => onOpen(`file://${targetPath}`, "basic", card.id)}
             className="font-medium text-foreground hover:text-primary cursor-pointer truncate"
-            title={card.name}
+            title={card.projectName}
           >
-            {card.name}
+            {card.projectName}
           </span>
           {card.tags?.map((t) => (
             <span
@@ -119,7 +123,7 @@ export function ConfigListItem({
       {/* 统计指标 */}
       <div className="hidden md:flex items-center gap-4 text-xs flex-shrink-0">
         <div
-          onClick={() => onOpen(targetPath, "sites")}
+          onClick={() => onOpen(`file://${targetPath}`, "sites", card.id)}
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground cursor-pointer"
           title="点播爬虫源"
         >
@@ -127,7 +131,7 @@ export function ConfigListItem({
           <span className="font-medium">{card.sites ?? 0}</span>
         </div>
         <div
-          onClick={() => onOpen(targetPath, "lives")}
+          onClick={() => onOpen(`file://${targetPath}`, "lives", card.id)}
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground cursor-pointer"
           title="直播源"
         >
@@ -135,7 +139,7 @@ export function ConfigListItem({
           <span className="font-medium">{card.lives ?? 0}</span>
         </div>
         <div
-          onClick={() => onOpen(targetPath, "parses")}
+          onClick={() => onOpen(`file://${targetPath}`, "parses", card.id)}
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground cursor-pointer"
           title="解析接口"
         >
@@ -165,7 +169,7 @@ export function ConfigListItem({
           variant="primary"
           size="sm"
           className="h-7 px-2.5 text-xs font-medium"
-          onClick={() => onOpen(targetPath, "basic")}
+          onClick={() => onOpen(`file://${targetPath}`, "basic", card.id)}
           icon={<ExternalLink className="h-3.5 w-3.5" />}
         >
           <span className="hidden sm:inline">打开</span>

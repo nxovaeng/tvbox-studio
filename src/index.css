@@ -120,6 +120,17 @@
   @apply transition-all duration-150 hover:shadow-md hover:border-primary/30;
 }
 
+/* 工作区状态栏 */
+.workspace-bar {
+  @apply flex items-center gap-2 px-3 py-1.5 border-b border-border bg-card/80 backdrop-blur-sm flex-shrink-0;
+}
+
+/* 二级菜单项 */
+.submenu-item {
+  @apply w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors
+         text-sidebar-foreground hover:bg-sidebar-accent/20 hover:text-foreground;
+}
+
 /* 标签页内容区 */
 .tab-panel {
   @apply flex-1 overflow-auto;

@@ -74,10 +74,14 @@ pub async fn read_content(uri: &str) -> Result<String> {
             .build()?;
         let text = client.get(uri).send().await?.text().await?;
         Ok(text)
-    } else if std::path::Path::new(uri).exists() {
-        Ok(std::fs::read_to_string(uri)?)
     } else {
-        Err(anyhow::anyhow!("无效资源: {}", uri))
+        let path = uri.strip_prefix("file://").unwrap_or(uri);
+        let path = urlencoding::decode(path)?.into_owned();
+        if std::path::Path::new(&path).exists() {
+            Ok(std::fs::read_to_string(path)?)
+        } else {
+            Err(anyhow::anyhow!("无效资源: {}", uri))
+        }
     }
 }
 

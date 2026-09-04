@@ -181,16 +181,19 @@ export function extractByRule(html: string, rule: string): string {
 // ============================================================
 // TvBox JSON 智能合并（去重）
 // ============================================================
-import type { TvBoxSource, TvBoxVod, TvBoxLive, TvBoxParse, TvBoxRule } from "../types/tvbox";
+import type { TvBoxSource, TvBoxVod, TvBoxLive, TvBoxParse, TvBoxRule, TvBoxDoh } from "../types/tvbox";
 
 export function mergeTvBoxSources(base: TvBoxSource, incoming: TvBoxSource): TvBoxSource {
   const result = deepClone(base);
 
-  // 合并 sites（以 api+ext 为唯一键）
+  // 合并 sites（优先以 key 为主，次之以 api+ext 拼合为唯一键，防止 object ext 发生 [object Object] 碰撞覆盖）
   const siteMap = new Map<string, TvBoxVod>();
-  result.sites.forEach((s) => siteMap.set(s.api + String(s.ext ?? ""), s));
+  const siteKey = (s: TvBoxVod) =>
+    s.key ? `key:${s.key}` : `api:${s.api}_ext:${typeof s.ext === "object" ? JSON.stringify(s.ext) : String(s.ext ?? "")}`;
+
+  result.sites.forEach((s) => siteMap.set(siteKey(s), s));
   incoming.sites.forEach((s) => {
-    const k = s.api + String(s.ext ?? "");
+    const k = siteKey(s);
     if (!siteMap.has(k)) siteMap.set(k, s);
   });
   result.sites = Array.from(siteMap.values());
@@ -239,10 +242,28 @@ export function mergeTvBoxSources(base: TvBoxSource, incoming: TvBoxSource): TvB
     result.rules = Array.from(ruleMap.values());
   }
 
-  // spider / wallpaper / warningText：incoming 不为空时覆盖
+  // 合并 doh（以 url 或 name 为键）
+  if (incoming.doh?.length) {
+    const dohMap = new Map<string, TvBoxDoh>();
+    (result.doh ?? []).forEach((d) => dohMap.set(d.url || d.name, d));
+    incoming.doh.forEach((d) => {
+      const k = d.url || d.name;
+      if (!dohMap.has(k)) dohMap.set(k, d);
+    });
+    result.doh = Array.from(dohMap.values());
+  }
+
+  // 合并 hosts（Set 去重）
+  if (incoming.hosts?.length) {
+    result.hosts = Array.from(new Set([...(result.hosts ?? []), ...incoming.hosts]));
+  }
+
+  // spider / wallpaper / warningText / danmaku / logo：incoming 不为空时覆盖
   if (incoming.spider) result.spider = incoming.spider;
   if (incoming.wallpaper) result.wallpaper = incoming.wallpaper;
   if (incoming.warningText) result.warningText = incoming.warningText;
+  if (incoming.danmaku) result.danmaku = incoming.danmaku;
+  if (incoming.logo) result.logo = incoming.logo;
 
   return result;
 }

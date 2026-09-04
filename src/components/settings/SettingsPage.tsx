@@ -2,7 +2,7 @@ import React from "react";
 import { useSettingsStore, useUIStore } from "../../store";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
-import { Settings, Sun, Moon, Monitor, RotateCcw } from "lucide-react";
+import { Settings, Sun, Moon, Monitor, RotateCcw, FolderOpen } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 export function SettingsPage() {
@@ -112,6 +112,39 @@ export function SettingsPage() {
               min={1}
               max={100}
             />
+          </Field>
+        </Section>
+
+        {/* 本地存储 */}
+        <Section title="本地存储">
+          <Field label="数据存储根目录" description="所有 TVBox 本地化资源与各独立配置子目录的根存放路径，默认 ./box">
+            <div className="flex items-center gap-2 max-w-lg">
+              <Input
+                value={settings.saveDir || "./box"}
+                onChange={(e) => updateSettings({ saveDir: e.target.value })}
+                placeholder="./box 或 /path/to/tvbox_data"
+                className="font-mono text-xs flex-1"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const { open } = await import("@tauri-apps/plugin-dialog");
+                    const selected = await open({ directory: true, multiple: false });
+                    if (selected && typeof selected === "string") {
+                      updateSettings({ saveDir: selected });
+                      addToast({ type: "success", message: `已设置数据根目录为: ${selected}` });
+                    }
+                  } catch (e) {
+                    addToast({ type: "error", message: `选择目录失败: ${e}` });
+                  }
+                }}
+                icon={<FolderOpen className="h-3.5 w-3.5" />}
+              >
+                浏览
+              </Button>
+            </div>
           </Field>
         </Section>
 

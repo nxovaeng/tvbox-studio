@@ -34,41 +34,78 @@ export function BasicTab() {
           </p>
         </FieldGroup>
 
-        <FieldGroup label="壁纸 URL">
-          <div className="flex gap-2">
-            <Input
-              value={source.wallpaper ?? ""}
-              onChange={(e) => updateSource({ wallpaper: e.target.value })}
-              placeholder="可选，首页壁纸图片链接"
-              className="flex-1"
-            />
-            {source.wallpaper && (
-              <a href={source.wallpaper} target="_blank" rel="noreferrer">
-                <Button variant="outline" size="icon" icon={<Image className="h-4 w-4" />} />
-              </a>
-            )}
-          </div>
-        </FieldGroup>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FieldGroup label="配置名称">
+            <Input value={source.name ?? ""} onChange={(e) => updateSource({ name: e.target.value })} placeholder="例如：家庭影视配置" />
+          </FieldGroup>
+          <FieldGroup label="配置路径">
+            <Input value={source.path ?? ""} onChange={(e) => updateSource({ path: e.target.value })} placeholder="例如：./box/xiaosa/xiaosa.json" />
+          </FieldGroup>
+        </div>
 
-        <FieldGroup label="提示文字">
-          <Input
-            value={source.warningText ?? ""}
-            onChange={(e) => updateSource({ warningText: e.target.value })}
-            placeholder="可选，TVBox 启动时显示的提示文字"
-          />
-        </FieldGroup>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FieldGroup label="壁纸 URL">
+            <div className="flex gap-2">
+              <Input
+                value={source.wallpaper ?? ""}
+                onChange={(e) => updateSource({ wallpaper: e.target.value })}
+                placeholder="可选，首页壁纸图片链接"
+                className="flex-1"
+              />
+              {source.wallpaper && (
+                <a href={source.wallpaper} target="_blank" rel="noreferrer">
+                  <Button variant="outline" size="icon" icon={<Image className="h-4 w-4" />} />
+                </a>
+              )}
+            </div>
+          </FieldGroup>
+          <FieldGroup label="全局 Logo">
+            <div className="flex gap-2">
+              <Input
+                value={source.logo ?? ""}
+                onChange={(e) => updateSource({ logo: e.target.value })}
+                placeholder="可选，首页全局台标/Logo图片链接"
+                className="flex-1"
+              />
+              {source.logo && (
+                <a href={source.logo} target="_blank" rel="noreferrer">
+                  <Button variant="outline" size="icon" icon={<Image className="h-4 w-4" />} />
+                </a>
+              )}
+            </div>
+          </FieldGroup>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FieldGroup label="弹幕引擎 URL">
+            <Input
+              value={source.danmaku ?? ""}
+              onChange={(e) => updateSource({ danmaku: e.target.value })}
+              placeholder="可选，如: http://127.0.0.1:9978/danmaku"
+            />
+          </FieldGroup>
+          <FieldGroup label="提示文字">
+            <Input
+              value={source.warningText ?? ""}
+              onChange={(e) => updateSource({ warningText: e.target.value })}
+              placeholder="可选，TVBox 启动时显示的提示文字"
+            />
+          </FieldGroup>
+        </div>
 
         {/* 统计信息卡片 */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
           {[
             { label: "爬虫规则", value: source.sites.length },
             { label: "直播规则", value: source.lives.length },
             { label: "解析接口", value: source.parses?.length ?? 0 },
             { label: "VIP 标识", value: source.flags?.length ?? 0 },
+            { label: "DoH 节点", value: source.doh?.length ?? 0 },
+            { label: "Hosts 映射", value: source.hosts?.length ?? 0 },
           ].map(({ label, value }) => (
-            <div key={label} className="bg-muted/50 rounded-lg p-3 text-center">
-              <div className="text-2xl font-bold text-primary">{value}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
+            <div key={label} className="bg-muted/50 rounded-lg p-2.5 text-center">
+              <div className="text-xl font-bold text-primary">{value}</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">{label}</div>
             </div>
           ))}
         </div>

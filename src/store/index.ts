@@ -87,6 +87,97 @@ interface TvBoxState {
   getJson: () => string;
 }
 
+export interface ConfigCard {
+  id: string;
+  name: string;
+  path: string;
+  url: string;
+  updatedAt: number;
+  sites?: number;
+  lives?: number;
+  parses?: number;
+  spider?: string;
+  description?: string;
+  tags?: string[];
+  favorite?: boolean;
+}
+
+interface ConfigCardsState {
+  cards: ConfigCard[];
+  upsert: (card: Omit<ConfigCard, "id" | "updatedAt"> & { id?: string }) => void;
+  update: (id: string, patch: Partial<ConfigCard>) => void;
+  remove: (id: string) => void;
+  removeBatch: (ids: string[]) => void;
+  toggleFavorite: (id: string) => void;
+  duplicateCard: (id: string) => ConfigCard | null;
+  importCards: (cards: ConfigCard[]) => void;
+}
+
+export const useConfigCardsStore = create<ConfigCardsState>()(
+  persist(
+    (set, get) => ({
+      cards: [],
+      upsert: (card) => {
+        const id = card.id ?? genId();
+        const existing = get().cards.find((item) => item.id === id || (card.path && item.path === card.path));
+        const next: ConfigCard = {
+          ...existing,
+          ...card,
+          id,
+          updatedAt: Date.now(),
+        };
+        set({
+          cards: [
+            next,
+            ...get().cards.filter((item) => item.id !== id && (card.path ? item.path !== card.path : true)),
+          ].slice(0, 100),
+        });
+      },
+      update: (id, patch) => {
+        set({
+          cards: get().cards.map((item) =>
+            item.id === id ? { ...item, ...patch, updatedAt: Date.now() } : item
+          ),
+        });
+      },
+      remove: (id) => set((state) => ({ cards: state.cards.filter((item) => item.id !== id) })),
+      removeBatch: (ids) => {
+        const setIds = new Set(ids);
+        set((state) => ({ cards: state.cards.filter((item) => !setIds.has(item.id)) }));
+      },
+      toggleFavorite: (id) => {
+        set({
+          cards: get().cards.map((item) =>
+            item.id === id ? { ...item, favorite: !item.favorite } : item
+          ),
+        });
+      },
+      duplicateCard: (id) => {
+        const target = get().cards.find((c) => c.id === id);
+        if (!target) return null;
+        const newCard: ConfigCard = {
+          ...target,
+          id: genId(),
+          name: `${target.name} (副本)`,
+          updatedAt: Date.now(),
+        };
+        set({ cards: [newCard, ...get().cards] });
+        return newCard;
+      },
+      importCards: (importedCards) => {
+        const existingMap = new Map<string, ConfigCard>();
+        get().cards.forEach((c) => existingMap.set(c.id, c));
+        importedCards.forEach((c) => {
+          const id = c.id || genId();
+          existingMap.set(id, { ...c, id, updatedAt: c.updatedAt || Date.now() });
+        });
+        set({ cards: Array.from(existingMap.values()).slice(0, 200) });
+      },
+    }),
+    { name: "tvbox-studio-config-cards", storage: createJSONStorage(() => localStorage) }
+  )
+);
+
 export const useTvBoxStore = create<TvBoxState>((set, get) => ({
   source: null,
   sourceUrl: "",
@@ -105,7 +196,11 @@ export const useTvBoxStore = create<TvBoxState>((set, get) => ({
   loadFromText: (text, url) => {
     try {
       const data = parseJsonc(text) as TvBoxSource;
-      set({ source: data, sourceUrl: url ?? "", isDirty: false });
+      const path = url?.startsWith("file://") ? decodeURIComponent(url.slice(7)) : (data.path || "");
+      if (path && !data.path) {
+        data.path = path;
+      }
+      set({ source: data, sourceUrl: url ?? "", sourcePath: path, isDirty: false });
     } catch (e) {
       throw new Error("JSON 解析失败: " + String(e));
     }

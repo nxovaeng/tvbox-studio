@@ -53,7 +53,14 @@ export function RulesTab() {
             rules.map((rule, i) => (
               <div key={i} className="group flex items-center gap-2 px-3 py-2.5 hover:bg-muted/30">
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">{rule.name ?? ruleHost(rule)}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium truncate">{rule.name ?? ruleHost(rule)}</span>
+                    {rule.script?.length ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                        {rule.script.length} 个注入脚本
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {[...(rule.hosts ?? []), ...(rule.regex ?? [])].slice(0, 3).join(" · ")}
                   </div>
@@ -93,6 +100,7 @@ function RuleForm({ rule, onSave, onCancel }: {
     hosts: (rule.hosts ?? []).join("\n"),
     regex: (rule.regex ?? []).join("\n"),
     rule: (rule.rule ?? []).join("\n"),
+    script: (rule.script ?? []).join("\n"),
   });
 
   const save = () => {
@@ -105,35 +113,44 @@ function RuleForm({ rule, onSave, onCancel }: {
     if (regex.length) r.regex = regex;
     const rules = form.rule.split("\n").map((l) => l.trim()).filter(Boolean);
     if (rules.length) r.rule = rules;
+    const script = form.script.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (script.length) r.script = script;
     onSave(r);
   };
 
   return (
     <div className="space-y-3 p-4">
       <div className="space-y-1.5">
-        <label className="text-sm font-medium">规则名称（可选）</label>
+        <label className="text-xs font-medium">规则名称（可选）</label>
         <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
       </div>
       <div className="space-y-1.5">
-        <label className="text-sm font-medium">单个主机</label>
+        <label className="text-xs font-medium">单个主机</label>
         <Input value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })}
           placeholder="example.com" />
       </div>
       <div className="space-y-1.5">
-        <label className="text-sm font-medium">多个主机（每行一个）</label>
+        <label className="text-xs font-medium">多个主机（每行一个）</label>
         <Textarea rows={3} value={form.hosts}
           onChange={(e) => setForm({ ...form, hosts: e.target.value })}
           placeholder="example.com&#10;another.com" />
       </div>
       <div className="space-y-1.5">
-        <label className="text-sm font-medium">正则表达式（每行一个）</label>
+        <label className="text-xs font-medium">正则表达式（每行一个）</label>
         <Textarea rows={3} value={form.regex}
           onChange={(e) => setForm({ ...form, regex: e.target.value })} />
       </div>
       <div className="space-y-1.5">
-        <label className="text-sm font-medium">提取规则（每行一个）</label>
+        <label className="text-xs font-medium">提取规则（每行一个）</label>
         <Textarea rows={3} value={form.rule}
           onChange={(e) => setForm({ ...form, rule: e.target.value })} />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium">注入 JS 执行脚本（每行一条）</label>
+        <Textarea rows={2} value={form.script}
+          onChange={(e) => setForm({ ...form, script: e.target.value })}
+          placeholder="如: document.querySelector('.play-btn')?.click();"
+          className="font-mono text-xs" />
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="outline" onClick={onCancel}>取消</Button>

@@ -23,8 +23,8 @@ static CACHE: Lazy<Arc<RwLock<Cache>>> =
 pub async fn update_cache(key: &str, value: String) {
     let mut c = CACHE.write().await;
     match key.to_lowercase().as_str() {
-        "tvbox"    => c.tvbox_json = value,
-        "playlist" => c.playlist_txt = value,
+        "tvbox" | "tvbox.json"      => c.tvbox_json = value,
+        "playlist" | "playlist.txt" => c.playlist_txt = value,
         _ => {}
     }
 }
@@ -32,8 +32,8 @@ pub async fn update_cache(key: &str, value: String) {
 pub async fn get_cache(key: &str) -> String {
     let c = CACHE.read().await;
     match key.to_lowercase().as_str() {
-        "tvbox"    => c.tvbox_json.clone(),
-        "playlist" => c.playlist_txt.clone(),
+        "tvbox" | "tvbox.json"      => c.tvbox_json.clone(),
+        "playlist" | "playlist.txt" => c.playlist_txt.clone(),
         _          => String::new(),
     }
 }
@@ -49,6 +49,7 @@ pub async fn run(port: u16) {
         .route("/playlist.m3u",  get(playlist_m3u_handler))
         .route("/playlist.m3u8", get(playlist_m3u_handler))
         .route("/files/{*path}", get(file_handler))
+        .fallback(get(fallback_handler))
         .with_state(cache);
 
     let addr = format!("0.0.0.0:{}", port);
@@ -72,7 +73,18 @@ async fn index_handler() -> impl IntoResponse {
 
 async fn tvbox_handler(State(cache): State<SharedCache>) -> impl IntoResponse {
     let content = cache.read().await.tvbox_json.clone();
-    json_response(content)
+    if !content.is_empty() {
+        return json_response(content);
+    }
+    // 若内存未命中，尝试从 resource_dir/tvbox.json 读取
+    let root = cache.read().await.resource_dir.clone();
+    if !root.is_empty() {
+        let path = std::path::Path::new(&root).join("tvbox.json");
+        if let Ok(c) = tokio::fs::read_to_string(path).await {
+            return json_response(c);
+        }
+    }
+    json_response("{}".to_string())
 }
 
 async fn playlist_txt_handler(State(cache): State<SharedCache>) -> impl IntoResponse {
@@ -89,6 +101,20 @@ pub async fn set_resource_dir(path: String) {
     CACHE.write().await.resource_dir = path;
 }
 
+fn mime_from_path(path: &str) -> &'static str {
+    match path.rsplit('.').next().unwrap_or("").to_lowercase().as_str() {
+        "json" => "application/json; charset=utf-8",
+        "js"   => "application/javascript; charset=utf-8",
+        "jar"  => "application/java-archive",
+        "py"   => "text/plain; charset=utf-8",
+        "png"  => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "txt"  => "text/plain; charset=utf-8",
+        "m3u" | "m3u8" => "application/x-mpegURL",
+        _      => "application/octet-stream",
+    }
+}
+
 async fn file_handler(
     State(cache): State<SharedCache>,
     Path(path): Path<String>,
@@ -101,8 +127,35 @@ async fn file_handler(
     let full_path = std::path::Path::new(&root).join(requested);
     match tokio::fs::read(&full_path).await {
         Ok(bytes) => {
+            let ct = mime_from_path(&path);
             let mut response = Response::new(bytes.into());
-            response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+            response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(ct));
+            response.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+            response
+        }
+        Err(_) => error_response(axum::http::StatusCode::NOT_FOUND, "not found"),
+    }
+}
+
+async fn fallback_handler(
+    State(cache): State<SharedCache>,
+    axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
+) -> impl IntoResponse {
+    let path = uri.path().trim_start_matches('/');
+    let root = cache.read().await.resource_dir.clone();
+    if root.is_empty() {
+        return error_response(axum::http::StatusCode::NOT_FOUND, "not found");
+    }
+    let requested = std::path::Path::new(&path);
+    if requested.components().any(|component| matches!(component, std::path::Component::ParentDir)) {
+        return error_response(axum::http::StatusCode::BAD_REQUEST, "invalid path");
+    }
+    let full_path = std::path::Path::new(&root).join(requested);
+    match tokio::fs::read(&full_path).await {
+        Ok(bytes) => {
+            let ct = mime_from_path(path);
+            let mut response = Response::new(bytes.into());
+            response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(ct));
             response.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
             response
         }

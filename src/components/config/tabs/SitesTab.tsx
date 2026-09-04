@@ -8,7 +8,7 @@ import { Dialog } from "../../ui/Dialog";
 import { CheckingOverlay } from "../../ui/Progress";
 import {
   Search, Plus, Trash2, Edit3, Copy, ChevronDown, ChevronUp,
-  Wifi, CheckSquare, Square, ExternalLink,
+  Wifi, CheckSquare, Square, ExternalLink, Eye, EyeOff, AlertTriangle,
 } from "lucide-react";
 import { cn, genId } from "../../../lib/utils";
 import { checkVods } from "../../../lib/tauri";
@@ -22,6 +22,7 @@ export function SitesTab() {
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline" | "unknown">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [checking, setChecking] = useState(false);
@@ -32,32 +33,126 @@ export function SitesTab() {
 
   const sites = source?.sites ?? [];
 
+  const offlineCount = useMemo(() => sites.filter((s) => s._status === "offline").length, [sites]);
+  const onlineCount = useMemo(() => sites.filter((s) => s._status === "online").length, [sites]);
+  const unknownCount = useMemo(() => sites.filter((s) => !s._status || s._status === "unknown").length, [sites]);
+
   const siteCategory = (site: TvBoxVod) => {
-    const api = site.api.toLowerCase();
+    const api = (site.api || "").toLowerCase();
+    const name = (site.name || "").toLowerCase();
+    const key = (site.key || "").toLowerCase();
+    const extStr = typeof site.ext === "string" ? site.ext.toLowerCase() : "";
+
+    // 1. 短剧 (Shortdrama)
+    if (site.genre === "shortdrama" || name.includes("短剧") || key.includes("short") || api.includes("short")) {
+      return "shortdrama";
+    }
+
+    // 2. 网盘/4K (Pan / Cloud Drive / Magnet)
+    if (
+      api.includes("csp_pan") ||
+      api.includes("csp_wogg") ||
+      api.includes("csp_seedhub") ||
+      api.includes("csp_jike") ||
+      api.includes("csp_shuangxing") ||
+      api.includes("csp_4k") ||
+      name.includes("4k") ||
+      name.includes("网盘") ||
+      name.includes("夸克") ||
+      name.includes("阿里") ||
+      name.includes("玩偶")
+    ) {
+      return "pan";
+    }
+
+    // 3. 原生客户端逆向 APP (AppGet, AppQi, AppDrama, App99, AppSy 等)
+    if (api.includes("csp_app")) {
+      return "app";
+    }
+
+    // 4. DR-PY (JavaScript) 爬虫引擎
+    if (
+      api.includes("drpy") ||
+      api.endsWith(".js") ||
+      api.includes(".js?") ||
+      extStr.includes("drpy.js") ||
+      (extStr.startsWith("./js/") && extStr.endsWith(".js"))
+    ) {
+      return "drpy";
+    }
+
+    // 5. Python 爬虫
+    if (api.endsWith(".py") || api.includes(".py?")) {
+      return "py";
+    }
+
+    // 6. XBPQ 规则引擎
+    if (api.includes("csp_xbpq")) {
+      return "xbpq";
+    }
+
+    // 7. XYQHiker / XPath 规则引擎
+    if (api.includes("csp_xyqhiker") || api.includes("csp_xpath")) {
+      return "xyq";
+    }
+
+    // 8. B站相关
+    if (api.includes("csp_bili")) {
+      return "bili";
+    }
+
+    // 9. CMS (XML / JSON)
     if (site.type === 0) return "xml";
     if (site.type === 1) return "json";
     if (site.type === 4) return "base64";
-    if (api.endsWith(".js") || api.includes(".js?")) return "js";
-    if (api.endsWith(".py") || api.includes(".py?")) return "py";
+
+    // 10. 其他 CSP JAR
     if (api.startsWith("csp_")) return "jar";
+
     return "spider";
   };
 
   const categoryOptions = [
-    { id: "all", label: "全部" }, { id: "xml", label: "XML" },
-    { id: "json", label: "JSON" }, { id: "base64", label: "Base64" },
-    { id: "jar", label: "JAR" }, { id: "js", label: "JavaScript" },
-    { id: "py", label: "Python" }, { id: "spider", label: "其他 Spider" },
+    { id: "all", label: "全部类别" },
+    { id: "pan", label: "网盘 / 4K" },
+    { id: "shortdrama", label: "短剧" },
+    { id: "app", label: "原生 APP" },
+    { id: "drpy", label: "DR-PY (JS)" },
+    { id: "xbpq", label: "XBPQ" },
+    { id: "xyq", label: "XYQHiker / XPath" },
+    { id: "py", label: "Python" },
+    { id: "bili", label: "哔哩哔哩" },
+    { id: "xml", label: "XML (CMS)" },
+    { id: "json", label: "JSON (CMS)" },
+    { id: "jar", label: "其他 CSP" },
+    { id: "spider", label: "其他规则" },
   ];
 
   const filtered = useMemo(() => {
-    const byCategory = category === "all" ? sites : sites.filter((site) => siteCategory(site) === category);
-    if (!search.trim()) return byCategory;
-    const q = search.toLowerCase();
-    return byCategory.filter(
-      (s) => s.name.toLowerCase().includes(q) || s.key.toLowerCase().includes(q) || s.api.toLowerCase().includes(q)
-    );
-  }, [sites, search, category]);
+    return sites.filter((site) => {
+      // 类别筛选
+      if (category !== "all" && siteCategory(site) !== category) return false;
+
+      // 状态筛选
+      if (statusFilter !== "all") {
+        if (statusFilter === "online" && site._status !== "online") return false;
+        if (statusFilter === "offline" && site._status !== "offline") return false;
+        if (statusFilter === "unknown" && site._status && site._status !== "unknown") return false;
+      }
+
+      // 关键词搜索
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const match =
+          site.name.toLowerCase().includes(q) ||
+          site.key.toLowerCase().includes(q) ||
+          site.api.toLowerCase().includes(q);
+        if (!match) return false;
+      }
+
+      return true;
+    });
+  }, [sites, search, category, statusFilter]);
 
   const toggleSelect = (key: string) => {
     setSelected((prev) => {
@@ -85,6 +180,40 @@ export function SitesTab() {
     removeSite([...selected]);
     setSelected(new Set());
     addToast({ type: "success", message: `已删除 ${selected.size} 条规则` });
+  };
+
+  // 一键排除离线失效源
+  const handleRemoveOffline = () => {
+    const offlineKeys = sites.filter((s) => s._status === "offline").map((s) => s.key);
+    if (offlineKeys.length === 0) {
+      addToast({ type: "info", message: "当前未发现离线失效源" });
+      return;
+    }
+    const confirmed = window.confirm(`检测到 ${offlineKeys.length} 个失效离线源，确定将其从配置中彻底删除吗？`);
+    if (!confirmed) return;
+    removeSite(offlineKeys);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      offlineKeys.forEach((k) => next.delete(k));
+      return next;
+    });
+    addToast({ type: "success", message: `已成功排除并删除 ${offlineKeys.length} 个失效源` });
+  };
+
+  // 批量隐藏或显示选中的源（排除不想在 TVBox 上看到的源）
+  const handleToggleHideSelected = (hideValue: number) => {
+    if (selected.size === 0) return;
+    const targets = Array.from(selected);
+    targets.forEach((key) => {
+      const idx = sites.findIndex((s) => s.key === key);
+      if (idx !== -1) {
+        useTvBoxStore.getState().updateSite(idx, { ...sites[idx], hide: hideValue });
+      }
+    });
+    addToast({
+      type: "success",
+      message: `已将选中的 ${targets.length} 个源设为${hideValue ? "隐藏（不在盒子显示）" : "正常显示"}`,
+    });
   };
 
   const handleCheckAll = useCallback(async () => {
@@ -116,12 +245,20 @@ export function SitesTab() {
     }
   }, [checking, sites, selected, setSiteStatus, addToast]);
 
-  const apiTypeBadge = (api: string) => {
-    if (api.includes("csp_XYQHiker")) return <Badge variant="default">XYQHiker</Badge>;
-    if (api.includes("csp_XBPQ"))    return <Badge variant="warning">XBPQ</Badge>;
-    if (api.includes("csp_XPath"))   return <Badge variant="success">XPath</Badge>;
-    if (api.includes("csp_"))        return <Badge variant="outline">CSP</Badge>;
-    return <Badge variant="outline">普通</Badge>;
+  const apiTypeBadge = (site: TvBoxVod) => {
+    const cat = siteCategory(site);
+    if (cat === "shortdrama") return <Badge variant="warning" className="text-[10px]">短剧</Badge>;
+    if (cat === "pan") return <Badge variant="default" className="text-[10px] bg-sky-500/20 text-sky-400 border-sky-500/30">网盘4K</Badge>;
+    if (cat === "app") return <Badge variant="default" className="text-[10px] bg-purple-500/20 text-purple-400 border-purple-500/30">APP</Badge>;
+    if (cat === "drpy") return <Badge variant="default" className="text-[10px] bg-emerald-500/20 text-emerald-400 border-emerald-500/30">DR-PY</Badge>;
+    if (cat === "xbpq") return <Badge variant="warning" className="text-[10px]">XBPQ</Badge>;
+    if (cat === "xyq") return <Badge variant="success" className="text-[10px]">XYQ</Badge>;
+    if (cat === "py") return <Badge variant="warning" className="text-[10px]">Python</Badge>;
+    if (cat === "bili") return <Badge variant="default" className="text-[10px] bg-pink-500/20 text-pink-400 border-pink-500/30">Bili</Badge>;
+    if (cat === "xml") return <Badge variant="outline" className="text-[10px]">XML</Badge>;
+    if (cat === "json") return <Badge variant="outline" className="text-[10px]">JSON</Badge>;
+    if (site.api.startsWith("csp_")) return <Badge variant="outline" className="text-[10px]">CSP</Badge>;
+    return <Badge variant="outline" className="text-[10px]">普通</Badge>;
   };
 
   return (
@@ -150,6 +287,18 @@ export function SitesTab() {
           {categoryOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
         </select>
 
+        <select
+          aria-label="状态筛选"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as any)}
+          className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+        >
+          <option value="all">全部状态</option>
+          <option value="online">🟢 在线可用 ({onlineCount})</option>
+          <option value="offline">🔴 离线失效 ({offlineCount})</option>
+          <option value="unknown">⚪ 未检测 ({unknownCount})</option>
+        </select>
+
         <span className="text-xs text-muted-foreground ml-1">
           {filtered.length}/{sites.length}
           {selected.size > 0 && ` · 已选 ${selected.size}`}
@@ -161,6 +310,20 @@ export function SitesTab() {
               {checkProgress.done}/{checkProgress.total}
             </span>
           )}
+
+          {/* 一键排除离线失效源 */}
+          {offlineCount > 0 && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={handleRemoveOffline}
+              icon={<AlertTriangle className="h-3.5 w-3.5" />}
+              title="一键清理所有不可达离线爬虫源"
+            >
+              排除失效源 ({offlineCount})
+            </Button>
+          )}
+
           <Button
             variant="outline" size="sm"
             loading={checking}
@@ -169,14 +332,40 @@ export function SitesTab() {
           >
             {selected.size > 0 ? `检测选中(${selected.size})` : "检测全部"}
           </Button>
-          <Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />}
-            onClick={() => setShowAdd(true)}>
-            新增
-          </Button>
-          {selected.size > 0 && (
-            <Button variant="danger" size="sm" icon={<Trash2 className="h-3.5 w-3.5" />}
-              onClick={handleDelete}>
-              删除({selected.size})
+
+          {selected.size > 0 ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleToggleHideSelected(1)}
+                icon={<EyeOff className="h-3.5 w-3.5" />}
+                title="在 TVBox 客户端隐藏选中的源"
+              >
+                隐藏
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleToggleHideSelected(0)}
+                icon={<Eye className="h-3.5 w-3.5" />}
+                title="在 TVBox 客户端恢复显示选中的源"
+              >
+                显示
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                icon={<Trash2 className="h-3.5 w-3.5" />}
+                onClick={handleDelete}
+              >
+                删除({selected.size})
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" size="sm" icon={<Plus className="h-3.5 w-3.5" />}
+              onClick={() => setShowAdd(true)}>
+              新增
             </Button>
           )}
         </div>
@@ -211,11 +400,25 @@ export function SitesTab() {
                     <StatusDot status={site._status} />
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-medium text-sm truncate">{site.name}</span>
-                        {apiTypeBadge(site.api)}
-                        <Badge variant="outline" className="text-[10px]">{categoryOptions.find((x) => x.id === siteCategory(site))?.label}</Badge>
-                        {site.searchable ? <Badge variant="outline" className="text-[10px]">可搜索</Badge> : null}
+                        {apiTypeBadge(site)}
+                        {site.changeable === 1 && (
+                          <Badge variant="outline" className="text-[10px] text-blue-500 border-blue-500/30">换源</Badge>
+                        )}
+                        {site.style?.ratio ? (
+                          <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-500/30">
+                            {site.style.type === "list" ? "列表" : "海报"} {site.style.ratio}
+                          </Badge>
+                        ) : site.style?.type ? (
+                          <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-500/30">
+                            {site.style.type === "list" ? "横版列表" : "海报卡片"}
+                          </Badge>
+                        ) : null}
+                        {site.timeout ? (
+                          <Badge variant="outline" className="text-[10px] text-muted-foreground">{site.timeout}s</Badge>
+                        ) : null}
+                        {site.searchable ? <Badge variant="outline" className="text-[10px]">可搜</Badge> : null}
                         {site.hide ? <Badge variant="warning" className="text-[10px]">已隐藏</Badge> : null}
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5 truncate">
@@ -264,6 +467,14 @@ export function SitesTab() {
                       <DetailRow label="Key" value={site.key} mono />
                       <DetailRow label="API" value={site.api} mono />
                       <DetailRow label="类型" value={String(site.type)} />
+                      {site.style && (
+                        <DetailRow label="样式" value={`${site.style.type || "默认"} (比例: ${site.style.ratio ?? "自适应"})`} />
+                      )}
+                      {site.genre && <DetailRow label="题材" value={site.genre} />}
+                      {site.timeout && <DetailRow label="超时" value={`${site.timeout} 秒`} />}
+                      {site.changeable !== undefined && (
+                        <DetailRow label="可换源" value={site.changeable ? "是" : "否"} />
+                      )}
                       {site.ext != null && (
                         <DetailRow label="Ext"
                           value={typeof site.ext === "string" ? site.ext : JSON.stringify(site.ext)} mono />
@@ -271,6 +482,9 @@ export function SitesTab() {
                       {site.jar && <DetailRow label="JAR" value={site.jar} mono />}
                       <DetailRow label="可搜索" value={site.searchable ? "是" : "否"} />
                       <DetailRow label="快速搜索" value={site.quickSearch ? "是" : "否"} />
+                      {site.header && (
+                        <DetailRow label="请求头" value={typeof site.header === "string" ? site.header : JSON.stringify(site.header)} mono />
+                      )}
                     </div>
                   )}
                 </div>

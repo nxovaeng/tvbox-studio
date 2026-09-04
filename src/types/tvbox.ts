@@ -2,7 +2,15 @@
 // TVBox 核心数据类型定义
 // ============================================================
 
+export interface TvBoxDoh {
+  name: string;
+  url: string;
+  ips?: string[];
+}
+
 export interface TvBoxSource {
+  name?: string;
+  path?: string;
   sites: TvBoxVod[];
   lives: TvBoxLive[];
   parses?: TvBoxParse[];
@@ -13,6 +21,11 @@ export interface TvBoxSource {
   wallpaper?: string;
   spider?: string;
   warningText?: string;
+  logo?: string;
+  danmaku?: string;
+  doh?: TvBoxDoh[];
+  hosts?: string[];
+  [key: string]: unknown;
 }
 
 export interface TvBoxVod {
@@ -23,6 +36,7 @@ export interface TvBoxVod {
   searchable?: number;
   quickSearch?: number;
   filterable?: number;
+  changeable?: number;
   ext?: string | Record<string, unknown>;
   jar?: string;
   playerType?: number;
@@ -30,9 +44,20 @@ export interface TvBoxVod {
   click?: string;
   hide?: number;
   playerUrl?: string;
+  playUrl?: string;
+  genre?: string;
+  gridview?: string | number;
+  indexs?: number;
+  timeout?: number;
+  header?: Record<string, string> | string;
+  style?: {
+    type?: "rect" | "list" | string;
+    ratio?: number;
+  };
   // 前端扩展字段
   _status?: "unknown" | "online" | "offline" | "checking";
   _features?: string;
+  [key: string]: unknown;
 }
 
 export interface TvBoxLive {
@@ -40,10 +65,15 @@ export interface TvBoxLive {
   group?: string;
   channels?: LiveChannel[];
   epg?: string;
+  logo?: string;
   type?: number;
   url?: string;
+  playerType?: number;
+  ua?: string;
+  timeout?: number;
   // 前端扩展字段
   _status?: "unknown" | "online" | "offline" | "checking";
+  [key: string]: unknown;
 }
 
 export interface LiveChannel {
@@ -53,11 +83,16 @@ export interface LiveChannel {
 
 export interface TvBoxParse {
   name: string;
-  type: number;
+  type: number | string;
   url: string;
-  ext?: Record<string, unknown>;
+  ext?: {
+    flag?: string[];
+    header?: Record<string, string>;
+    [key: string]: unknown;
+  } | Record<string, unknown> | string;
   // 前端扩展字段
   _status?: "unknown" | "online" | "offline" | "checking";
+  [key: string]: unknown;
 }
 
 export interface TvBoxIjk {
@@ -77,6 +112,8 @@ export interface TvBoxRule {
   regex?: string[];
   host?: string;
   rule?: string[];
+  script?: string[];
+  [key: string]: unknown;
 }
 
 // ============================================================
@@ -179,7 +216,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   editorFontSize: 14,
   checkTimeout: 10,
   checkConcurrency: 20,
-  saveDir: "",
+  saveDir: "./box",
   githubProxy: "https://mirror.ghproxy.com/",
   serverPort: 8090,
 };

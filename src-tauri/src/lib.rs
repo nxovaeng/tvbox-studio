@@ -40,9 +40,11 @@ pub fn run() {
             commands::create_dir,
             commands::list_dir,
             commands::download_file,
+            commands::copy_local_file,
             // HTTP Server 控制
             commands::server_cache,
             commands::server_get_cache,
+            commands::set_server_resource_dir,
             commands::get_lan_ips,
             commands::is_app_installed,
             // R2 上传

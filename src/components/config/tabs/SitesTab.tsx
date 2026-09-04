@@ -21,6 +21,7 @@ export function SitesTab() {
   const { addToast } = useUIStore();
 
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [checking, setChecking] = useState(false);
@@ -31,13 +32,32 @@ export function SitesTab() {
 
   const sites = source?.sites ?? [];
 
+  const siteCategory = (site: TvBoxVod) => {
+    const api = site.api.toLowerCase();
+    if (site.type === 0) return "xml";
+    if (site.type === 1) return "json";
+    if (site.type === 4) return "base64";
+    if (api.endsWith(".js") || api.includes(".js?")) return "js";
+    if (api.endsWith(".py") || api.includes(".py?")) return "py";
+    if (api.startsWith("csp_")) return "jar";
+    return "spider";
+  };
+
+  const categoryOptions = [
+    { id: "all", label: "全部" }, { id: "xml", label: "XML" },
+    { id: "json", label: "JSON" }, { id: "base64", label: "Base64" },
+    { id: "jar", label: "JAR" }, { id: "js", label: "JavaScript" },
+    { id: "py", label: "Python" }, { id: "spider", label: "其他 Spider" },
+  ];
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return sites;
+    const byCategory = category === "all" ? sites : sites.filter((site) => siteCategory(site) === category);
+    if (!search.trim()) return byCategory;
     const q = search.toLowerCase();
-    return sites.filter(
+    return byCategory.filter(
       (s) => s.name.toLowerCase().includes(q) || s.key.toLowerCase().includes(q) || s.api.toLowerCase().includes(q)
     );
-  }, [sites, search]);
+  }, [sites, search, category]);
 
   const toggleSelect = (key: string) => {
     setSelected((prev) => {
@@ -125,6 +145,11 @@ export function SitesTab() {
           />
         </div>
 
+        <select aria-label="爬虫分类" value={category} onChange={(e) => setCategory(e.target.value)}
+          className="h-7 rounded-md border border-input bg-background px-2 text-xs">
+          {categoryOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+        </select>
+
         <span className="text-xs text-muted-foreground ml-1">
           {filtered.length}/{sites.length}
           {selected.size > 0 && ` · 已选 ${selected.size}`}
@@ -189,6 +214,7 @@ export function SitesTab() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-sm truncate">{site.name}</span>
                         {apiTypeBadge(site.api)}
+                        <Badge variant="outline" className="text-[10px]">{categoryOptions.find((x) => x.id === siteCategory(site))?.label}</Badge>
                         {site.searchable ? <Badge variant="outline" className="text-[10px]">可搜索</Badge> : null}
                         {site.hide ? <Badge variant="warning" className="text-[10px]">已隐藏</Badge> : null}
                       </div>

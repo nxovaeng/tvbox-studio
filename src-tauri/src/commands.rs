@@ -165,6 +165,15 @@ pub async fn download_file(url: String, save_path: String) -> Result<bool, Strin
     Ok(true)
 }
 
+#[tauri::command]
+pub async fn copy_local_file(source_path: String, save_path: String) -> Result<bool, String> {
+    if let Some(parent) = std::path::Path::new(&save_path).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::copy(&source_path, &save_path).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 // ============================================================
 // 内嵌 HTTP Server 控制
 // ============================================================
@@ -177,6 +186,15 @@ pub async fn server_cache(key: String, value: String) {
 #[tauri::command]
 pub async fn server_get_cache(key: String) -> String {
     server::get_cache(&key).await
+}
+
+#[tauri::command]
+pub async fn set_server_resource_dir(path: String) -> Result<bool, String> {
+    let path = std::path::Path::new(&path);
+    std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
+    let absolute = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
+    server::set_resource_dir(absolute.to_string_lossy().to_string()).await;
+    Ok(true)
 }
 
 #[tauri::command]

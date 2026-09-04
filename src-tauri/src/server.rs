@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::{header, HeaderValue},
     response::{IntoResponse, Response},
     routing::get,
@@ -14,6 +14,7 @@ use tokio::sync::RwLock;
 pub struct Cache {
     pub tvbox_json: String,
     pub playlist_txt: String,
+    pub resource_dir: String,
 }
 
 static CACHE: Lazy<Arc<RwLock<Cache>>> =
@@ -47,6 +48,7 @@ pub async fn run(port: u16) {
         .route("/playlist.txt",  get(playlist_txt_handler))
         .route("/playlist.m3u",  get(playlist_m3u_handler))
         .route("/playlist.m3u8", get(playlist_m3u_handler))
+        .route("/files/{*path}", get(file_handler))
         .with_state(cache);
 
     let addr = format!("0.0.0.0:{}", port);
@@ -81,6 +83,37 @@ async fn playlist_txt_handler(State(cache): State<SharedCache>) -> impl IntoResp
 async fn playlist_m3u_handler(State(cache): State<SharedCache>) -> impl IntoResponse {
     let content = cache.read().await.playlist_txt.clone();
     m3u_response(content)
+}
+
+pub async fn set_resource_dir(path: String) {
+    CACHE.write().await.resource_dir = path;
+}
+
+async fn file_handler(
+    State(cache): State<SharedCache>,
+    Path(path): Path<String>,
+) -> impl IntoResponse {
+    let root = cache.read().await.resource_dir.clone();
+    let requested = std::path::Path::new(&path);
+    if requested.components().any(|component| matches!(component, std::path::Component::ParentDir)) {
+        return error_response(axum::http::StatusCode::BAD_REQUEST, "invalid path");
+    }
+    let full_path = std::path::Path::new(&root).join(requested);
+    match tokio::fs::read(&full_path).await {
+        Ok(bytes) => {
+            let mut response = Response::new(bytes.into());
+            response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+            response.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+            response
+        }
+        Err(_) => error_response(axum::http::StatusCode::NOT_FOUND, "not found"),
+    }
+}
+
+fn error_response(status: axum::http::StatusCode, body: &'static str) -> Response {
+    let mut response = Response::new(body.into());
+    *response.status_mut() = status;
+    response
 }
 
 fn json_response(body: String) -> Response {

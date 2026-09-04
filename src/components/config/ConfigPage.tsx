@@ -303,7 +303,7 @@ export function ConfigPage() {
       <MergeDialog open={showMerge} onClose={() => setShowMerge(false)} />
       <SaveDialog open={showSave} onClose={() => setShowSave(false)} />
       <PublishDialog open={showPublish} onClose={() => setShowPublish(false)} />
-      <LocalizeDialog open={showLocalize} onClose={() => setShowLocalize(false)} />
+      <LocalizeDialog open={showLocalize} onClose={() => setShowLocalize(false)} sourceUrl={sourceUrl} />
       <HistoryDialog
         open={showHistory}
         onClose={() => setShowHistory(false)}

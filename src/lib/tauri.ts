@@ -62,6 +62,8 @@ export interface FileEntry {
 export const listDir = (path: string) => invoke<FileEntry[]>("list_dir", { path });
 export const downloadFile = (url: string, savePath: string) =>
   invoke<boolean>("download_file", { url, savePath });
+export const copyLocalFile = (sourcePath: string, savePath: string) =>
+  invoke<boolean>("copy_local_file", { sourcePath, savePath });
 
 // ============================================================
 // HTTP Server 控制
@@ -70,6 +72,8 @@ export const serverCache = (key: string, value: string) =>
   invoke<void>("server_cache", { key, value });
 export const serverGetCache = (key: string) =>
   invoke<string>("server_get_cache", { key });
+export const setServerResourceDir = (path: string) =>
+  invoke<boolean>("set_server_resource_dir", { path });
 export const getLanIps = () => invoke<string[]>("get_lan_ips");
 export const isAppInstalled = (app: string) =>
   invoke<boolean>("is_app_installed", { app });

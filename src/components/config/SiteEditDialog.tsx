@@ -260,7 +260,7 @@ export function SiteEditDialog({ site, index, onClose, isNew }: Props) {
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-foreground">API / 爬虫入口 *</label>
                   <span className="text-[11px] text-muted-foreground">
-                    如: csp_XYQHiker / ./lib/drpy2.min.js / ./py/xxx.py / https://...
+                    如: csp_XYQHiker / ./lib/drpy2.min.js / ./py/xxx.py / https://xxx/vod/ ... 等
                   </span>
                 </div>
                 <Input
@@ -301,7 +301,7 @@ export function SiteEditDialog({ site, index, onClose, isNew }: Props) {
                             if (extStr.trim().startsWith("{")) {
                               setExtStr(JSON.stringify(JSON.parse(extStr.trim()), null, 2));
                             }
-                          } catch {}
+                          } catch { }
                         }}
                         className={cn("px-2 py-0.5", extMode === "json" ? "bg-primary text-primary-foreground font-medium" : "bg-muted text-muted-foreground")}
                       >

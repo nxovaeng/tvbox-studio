@@ -43,11 +43,11 @@ export function MergeDialog({ open, onClose }: Props) {
         <div className="bg-muted/40 rounded-md p-3 text-xs text-muted-foreground space-y-1">
           <p>合并规则：</p>
           <ul className="list-disc pl-4 space-y-0.5">
-            <li>爬虫规则 (sites)：按 API + Ext 去重</li>
+            <li>爬虫规则 (sites)：将全局 Spider 自动下放至需 jar 依赖的源 (csp_)，然后按 API+Ext+Jar 去重合并</li>
             <li>直播规则 (lives)：按 URL 去重</li>
             <li>解析接口 (parses)：按 URL 去重</li>
             <li>广告/VIP/规则：合并去重</li>
-            <li>Spider/壁纸：以最后一个有值的为准</li>
+            <li>全局壁纸 (wallpaper)：以最后一个有值的为准</li>
           </ul>
         </div>
         <div className="flex justify-end gap-2">

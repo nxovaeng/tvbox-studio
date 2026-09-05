@@ -185,14 +185,36 @@ import type { TvBoxSource, TvBoxVod, TvBoxLive, TvBoxParse, TvBoxRule, TvBoxDoh 
 
 export function mergeTvBoxSources(base: TvBoxSource, incoming: TvBoxSource): TvBoxSource {
   const result = deepClone(base);
+  const inc = deepClone(incoming);
 
-  // 合并 sites（优先以 key 为主，次之以 api+ext 拼合为唯一键，防止 object ext 发生 [object Object] 碰撞覆盖）
+  // 将全局 spider 下放到没有明确指定 jar 的 Java 自定义爬虫源中
+  // 仅 type === 3 且 api 以 csp_ 开头（代表 Java 类）的才需要 jar，cms/js/py 等不需要
+  if (result.spider) {
+    result.sites.forEach(s => {
+      if (!s.jar && s.type === 3 && s.api?.startsWith("csp_")) {
+        s.jar = result.spider;
+      }
+    });
+  }
+  if (inc.spider) {
+    inc.sites.forEach(s => {
+      if (!s.jar && s.type === 3 && s.api?.startsWith("csp_")) {
+        s.jar = inc.spider;
+      }
+    });
+  }
+
+  // 合并 sites（优先以 key 为主，次之以 api+ext+jar 拼合为唯一键，防止 object ext 发生 [object Object] 碰撞覆盖）
   const siteMap = new Map<string, TvBoxVod>();
-  const siteKey = (s: TvBoxVod) =>
-    s.key ? `key:${s.key}` : `api:${s.api}_ext:${typeof s.ext === "object" ? JSON.stringify(s.ext) : String(s.ext ?? "")}`;
+  const siteKey = (s: TvBoxVod) => {
+    if (s.key) return `key:${s.key}`;
+    const extStr = typeof s.ext === "object" ? JSON.stringify(s.ext) : String(s.ext ?? "");
+    const jarStr = s.jar ?? "";
+    return `api:${s.api}_ext:${extStr}_jar:${jarStr}`;
+  };
 
   result.sites.forEach((s) => siteMap.set(siteKey(s), s));
-  incoming.sites.forEach((s) => {
+  inc.sites.forEach((s) => {
     const k = siteKey(s);
     if (!siteMap.has(k)) siteMap.set(k, s);
   });

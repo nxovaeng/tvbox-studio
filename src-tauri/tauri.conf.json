@@ -12,10 +12,10 @@
     "windows": [
       {
         "title": "TVBox Studio",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 900,
-        "minHeight": 600,
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1100,
+        "minHeight": 700,
         "decorations": true,
         "transparent": false
       }

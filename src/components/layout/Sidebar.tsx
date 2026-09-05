@@ -8,9 +8,9 @@ import {
 } from "lucide-react";
 
 const TOP_NAV_ITEMS = [
-  { id: "playlist" as const, icon: Radio,  label: "直播源",  shortcut: "2" },
-  { id: "editor"   as const, icon: Code2,  label: "代码编辑", shortcut: "3" },
-  { id: "settings" as const, icon: Settings, label: "设置",  shortcut: "," },
+  { id: "playlist" as const, icon: Radio, label: "直播源" },
+  { id: "editor" as const, icon: Code2, label: "代码编辑" },
+  { id: "settings" as const, icon: Settings, label: "设置" },
 ] as const;
 
 export function Sidebar() {
@@ -23,7 +23,7 @@ export function Sidebar() {
   const MAX_VISIBLE = 8;
 
   // Group cards by directory (for local) or url (for remote)
-    const groupedProjects = useMemo(() => {
+  const groupedProjects = useMemo(() => {
     const sorted = [...cards].sort((a, b) => {
       if (a.favorite && !b.favorite) return -1;
       if (!a.favorite && b.favorite) return 1;
@@ -33,7 +33,7 @@ export function Sidebar() {
   }, [cards]);
 
   // 当工作区打开配置时，同步 activeConfigId
-    useEffect(() => {
+  useEffect(() => {
     if (!source) {
       setActiveConfigId(null);
       return;
@@ -60,7 +60,7 @@ export function Sidebar() {
     // Get the active card in this project, or the most recent one
     let targetCard = project.cards.find((c: any) => c.id === activeConfigId);
     if (!targetCard) targetCard = project.cards[0];
-    
+
     setActiveConfigId(targetCard.id);
     window.dispatchEvent(
       new CustomEvent("sidebar:openConfig", {
@@ -105,7 +105,7 @@ export function Sidebar() {
         <div>
           <button
             onClick={handleConfigNavClick}
-            title={sidebarCollapsed ? "配置管理 (1)" : undefined}
+            title={sidebarCollapsed ? "配置管理" : undefined}
             className={cn(
               "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors",
               "text-sidebar-foreground hover:bg-sidebar-accent/20 hover:text-foreground",
@@ -117,7 +117,6 @@ export function Sidebar() {
             {!sidebarCollapsed && (
               <>
                 <span className="flex-1 truncate text-left">配置管理</span>
-                <kbd className="text-[10px] text-muted-foreground font-mono opacity-60 mr-0.5">1</kbd>
                 {configExpanded
                   ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                   : <ChevronRightSm className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
@@ -205,11 +204,11 @@ export function Sidebar() {
         </div>
 
         {/* ── 其他导航项 ── */}
-        {TOP_NAV_ITEMS.map(({ id, icon: Icon, label, shortcut }) => (
+        {TOP_NAV_ITEMS.map(({ id, icon: Icon, label }) => (
           <button
             key={id}
             onClick={() => setActiveNav(id)}
-            title={sidebarCollapsed ? `${label} (${shortcut})` : undefined}
+            title={sidebarCollapsed ? label : undefined}
             className={cn(
               "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-sm transition-colors",
               "text-sidebar-foreground hover:bg-sidebar-accent/20 hover:text-foreground",
@@ -219,10 +218,7 @@ export function Sidebar() {
           >
             <Icon className="h-4 w-4 flex-shrink-0" />
             {!sidebarCollapsed && (
-              <>
-                <span className="flex-1 truncate">{label}</span>
-                <kbd className="text-[10px] text-muted-foreground font-mono opacity-60">{shortcut}</kbd>
-              </>
+              <span className="flex-1 text-left truncate">{label}</span>
             )}
           </button>
         ))}

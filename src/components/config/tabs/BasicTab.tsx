@@ -14,87 +14,15 @@ export function BasicTab() {
   };
 
   return (
-    <div className="overflow-auto h-full">
-      <div className="p-4 max-w-2xl space-y-5">
+    <div className="flex flex-col lg:flex-row h-full overflow-hidden p-4 gap-4">
+      {/* 左侧表单 */}
+      <div className="flex-1 overflow-y-auto pr-2 space-y-5 min-w-0 max-w-2xl">
         <div className="flex items-center justify-between">
           <h3 className="font-medium">基础信息</h3>
-          <Button variant="outline" size="sm" icon={<Copy className="h-3.5 w-3.5" />} onClick={copyJson}>
-            复制 JSON
-          </Button>
-        </div>
-
-        <FieldGroup label="Spider JAR">
-          <Input
-            value={source.spider ?? ""}
-            onChange={(e) => updateSource({ spider: e.target.value })}
-            placeholder="爬虫引擎 JAR 路径或链接（含 ;md5; 可自动计算）"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            示例: ./jar/tvbox.jar;md5;abc123 或 https://example.com/spider.jar
-          </p>
-        </FieldGroup>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <FieldGroup label="配置名称">
-            <Input value={source.name ?? ""} readOnly className="bg-muted/40 cursor-default" />
-          </FieldGroup>
-          <FieldGroup label="配置路径">
-            <Input value={source.path ?? ""} readOnly className="bg-muted/40 cursor-default font-mono text-xs" />
-          </FieldGroup>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <FieldGroup label="壁纸 URL">
-            <div className="flex gap-2">
-              <Input
-                value={source.wallpaper ?? ""}
-                onChange={(e) => updateSource({ wallpaper: e.target.value })}
-                placeholder="可选，首页壁纸图片链接"
-                className="flex-1"
-              />
-              {source.wallpaper && (
-                <a href={source.wallpaper} target="_blank" rel="noreferrer">
-                  <Button variant="outline" size="icon" icon={<Image className="h-4 w-4" />} />
-                </a>
-              )}
-            </div>
-          </FieldGroup>
-          <FieldGroup label="全局 Logo">
-            <div className="flex gap-2">
-              <Input
-                value={source.logo ?? ""}
-                onChange={(e) => updateSource({ logo: e.target.value })}
-                placeholder="可选，首页全局台标/Logo图片链接"
-                className="flex-1"
-              />
-              {source.logo && (
-                <a href={source.logo} target="_blank" rel="noreferrer">
-                  <Button variant="outline" size="icon" icon={<Image className="h-4 w-4" />} />
-                </a>
-              )}
-            </div>
-          </FieldGroup>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <FieldGroup label="弹幕引擎 URL">
-            <Input
-              value={source.danmaku ?? ""}
-              onChange={(e) => updateSource({ danmaku: e.target.value })}
-              placeholder="可选，如: http://127.0.0.1:9978/danmaku"
-            />
-          </FieldGroup>
-          <FieldGroup label="提示文字">
-            <Input
-              value={source.warningText ?? ""}
-              onChange={(e) => updateSource({ warningText: e.target.value })}
-              placeholder="可选，TVBox 启动时显示的提示文字"
-            />
-          </FieldGroup>
         </div>
 
         {/* 统计信息卡片 */}
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
           {[
             { label: "爬虫规则", value: source.sites.length },
             { label: "直播规则", value: source.lives.length },
@@ -110,15 +38,80 @@ export function BasicTab() {
           ))}
         </div>
 
-        {/* JSON 预览 */}
-        <FieldGroup label="原始 JSON 预览（只读）">
-          <Textarea
-            readOnly
-            value={useTvBoxStore.getState().getJson()}
-            rows={12}
-            className="font-mono text-xs bg-muted/30"
+        <FieldGroup label="Spider JAR">
+          <Input
+            value={source.spider ?? ""}
+            onChange={(e) => updateSource({ spider: e.target.value })}
+            placeholder="爬虫引擎 JAR 路径或链接（含 ;md5; 可自动计算）"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            示例: ./jar/tvbox.jar;md5;abc123 或 https://example.com/spider.jar
+          </p>
+        </FieldGroup>
+
+        <FieldGroup label="壁纸 URL">
+          <div className="flex gap-2">
+            <Input
+              value={source.wallpaper ?? ""}
+              onChange={(e) => updateSource({ wallpaper: e.target.value })}
+              placeholder="可选，首页壁纸图片链接"
+              className="flex-1"
+            />
+            {source.wallpaper && (
+              <a href={source.wallpaper} target="_blank" rel="noreferrer">
+                <Button variant="outline" size="icon" icon={<Image className="h-4 w-4" />} />
+              </a>
+            )}
+          </div>
+        </FieldGroup>
+
+        <FieldGroup label="全局 Logo">
+          <div className="flex gap-2">
+            <Input
+              value={source.logo ?? ""}
+              onChange={(e) => updateSource({ logo: e.target.value })}
+              placeholder="可选，首页全局台标/Logo图片链接"
+              className="flex-1"
+            />
+            {source.logo && (
+              <a href={source.logo} target="_blank" rel="noreferrer">
+                <Button variant="outline" size="icon" icon={<Image className="h-4 w-4" />} />
+              </a>
+            )}
+          </div>
+        </FieldGroup>
+
+        <FieldGroup label="弹幕引擎 URL">
+          <Input
+            value={source.danmaku ?? ""}
+            onChange={(e) => updateSource({ danmaku: e.target.value })}
+            placeholder="可选，如: http://127.0.0.1:9978/danmaku"
           />
         </FieldGroup>
+
+        <FieldGroup label="提示文字">
+          <Input
+            value={source.warningText ?? ""}
+            onChange={(e) => updateSource({ warningText: e.target.value })}
+            placeholder="可选，TVBox 启动时显示的提示文字"
+          />
+        </FieldGroup>
+
+      </div>
+
+      {/* 右侧 JSON 预览 */}
+      <div className="flex-1 flex flex-col min-w-0 lg:border-l border-t lg:border-t-0 border-border lg:pl-4 pt-4 lg:pt-0">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-medium text-sm text-muted-foreground">原始 JSON 预览（只读）</h3>
+          <Button variant="outline" size="sm" icon={<Copy className="h-3.5 w-3.5" />} onClick={copyJson}>
+            复制 JSON
+          </Button>
+        </div>
+        <Textarea
+          readOnly
+          value={useTvBoxStore.getState().getJson()}
+          className="font-mono text-xs bg-muted/30 flex-1 resize-none"
+        />
       </div>
     </div>
   );

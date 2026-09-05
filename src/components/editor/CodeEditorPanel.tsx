@@ -11,10 +11,11 @@ interface Props {
   site?: TvBoxVod;
   filePath?: string;
   initialContent?: string;
+  onSaveContent?: (content: string) => void;
   onClose?: () => void;
 }
 
-export function CodeEditorPanel({ site, filePath, initialContent, onClose }: Props) {
+export function CodeEditorPanel({ site, filePath, initialContent, onSaveContent, onClose }: Props) {
   const { settings } = useSettingsStore();
   const { addToast } = useUIStore();
   const [content, setContent] = useState(initialContent ?? "");
@@ -29,8 +30,10 @@ export function CodeEditorPanel({ site, filePath, initialContent, onClose }: Pro
         const ext = filePath.split(".").pop()?.toLowerCase();
         setLanguage(ext === "js" ? "javascript" : ext === "py" ? "python" : "json");
       }).catch((e) => addToast({ type: "error", message: `读取失败: ${e}` }));
+    } else if (initialContent) {
+      setContent(initialContent);
     }
-  }, [filePath]);
+  }, [filePath, initialContent]);
 
   const handleFormat = () => {
     try {
@@ -42,10 +45,14 @@ export function CodeEditorPanel({ site, filePath, initialContent, onClose }: Pro
   };
 
   const handleSave = async () => {
-    if (!filePath) return;
+    if (!filePath && !onSaveContent) return;
     setSaving(true);
     try {
-      await writeFile(filePath, content);
+      if (filePath) {
+        await writeFile(filePath, content);
+      } else if (onSaveContent) {
+        onSaveContent(content);
+      }
       addToast({ type: "success", message: "保存成功" });
     } catch (e) {
       addToast({ type: "error", message: `保存失败: ${e}` });
@@ -76,7 +83,7 @@ export function CodeEditorPanel({ site, filePath, initialContent, onClose }: Pro
           <Button variant="outline" size="sm" icon={<Wand2 className="h-3.5 w-3.5" />} onClick={handleFormat}>
             格式化
           </Button>
-          {filePath && (
+          { (filePath || onSaveContent) && (
             <Button variant="primary" size="sm" loading={saving}
               icon={<Save className="h-3.5 w-3.5" />} onClick={handleSave}>
               保存

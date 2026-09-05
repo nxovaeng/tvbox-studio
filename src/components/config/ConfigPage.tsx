@@ -81,7 +81,8 @@ export function ConfigPage() {
     tab?: any,
     cardId?: string,
     targetLocalPath?: string,
-    customName?: string
+    customName?: string,
+    localizedSource?: import("../../types/tvbox").TvBoxSource
   ) => {
     const { sourceUrl, isDirty } = useTvBoxStore.getState();
 
@@ -159,7 +160,15 @@ export function ConfigPage() {
         }
         await serverCache("tvbox.json", content).catch(() => {});
       } else {
-        await loadFromUrl(url, getContent);
+        if (localizedSource) {
+          // If we already have the parsed and localized config, load it directly
+          const text = JSON.stringify(localizedSource, null, 2);
+          useTvBoxStore.getState().loadFromText(text, url);
+        } else {
+          // Normal fetch
+          await loadFromUrl(url, getContent);
+        }
+        
         // 网络配置且指定了本地落盘路径
         if (targetLocalPath) {
           try {
@@ -182,7 +191,29 @@ export function ConfigPage() {
         }
       }
       setSourceUrl(url);
-      const loaded = useTvBoxStore.getState().source;
+
+      // 新建/导入配置（有 targetLocalPath 说明刚创建了新文件）：注册到 configs.json
+      if (targetLocalPath) {
+        const loaded = useTvBoxStore.getState().source;
+        const parts = targetLocalPath.replace(/\\/g, "/").split("/");
+        const fileName = parts.pop() || "tvbox.json";
+        const projName = customName || parts.pop() || "default";
+        upsertConfigCard({
+          id: cardId || projName,
+          projectName: projName,
+          defaultConfig: fileName,
+          configs: [fileName],
+          sites: loaded?.sites?.length ?? 0,
+          lives: loaded?.lives?.length ?? 0,
+          parses: loaded?.parses?.length ?? 0,
+          spider: loaded?.spider,
+        });
+        // 持久化到 configs.json
+        const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
+        import("../../lib/configRecords").then(({ writeConfigsRecord }) => {
+          writeConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).catch(() => {});
+        });
+      }
 
       let targetId = cardId;
       if (!targetId) {
@@ -190,15 +221,6 @@ export function ConfigPage() {
         const matched = cards.find(c => url.includes("/" + c.projectName + "/"));
         if (matched) targetId = matched.id;
       }
-
-      
-      // Sync project via scan
-      import("../../lib/configRecords").then(({ scanAndSyncConfigsRecord }) => {
-         const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
-         scanAndSyncConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).then(synced => {
-             useConfigCardsStore.getState().importCards(synced);
-         });
-      });
 
       if (targetId) setActiveConfigId(targetId);
       setActiveTab(tab ?? "basic");
@@ -267,18 +289,27 @@ export function ConfigPage() {
         await setServerResourceDir(dir).catch(() => {});
       }
       await serverCache("tvbox.json", updatedJson).catch(() => {});
+
+      // 更新卡片统计并持久化到 configs.json
       const saved = useTvBoxStore.getState().source;
-      
-      import("../../lib/configRecords").then(({ scanAndSyncConfigsRecord }) => {
-         const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
-         scanAndSyncConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).then(synced => {
-             useConfigCardsStore.getState().importCards(synced);
-         });
+      const parts = path.replace(/\\/g, "/").split("/");
+      const fileName = parts.pop() || "tvbox.json";
+      const projName = parts.pop() || "default";
+      upsertConfigCard({
+        id: projName,
+        projectName: projName,
+        defaultConfig: fileName,
+        configs: [fileName],
+        sites: saved?.sites?.length ?? 0,
+        lives: saved?.lives?.length ?? 0,
+        parses: saved?.parses?.length ?? 0,
+        spider: saved?.spider,
       });
 
       const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
       const { writeConfigsRecord } = await import("../../lib/configRecords");
       await writeConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).catch(() => {});
+
       addToast({ type: "success", message: `已保存到 ${path}` });
       useTvBoxStore.getState().setDirty(false);
       useTvBoxStore.getState().setSourcePath(path);
@@ -287,7 +318,7 @@ export function ConfigPage() {
     }
   }, [sourcePath, source?.path, upsertConfigCard, addToast]);
 
-  // ── 另存为 ──
+  // ── 另存为：仅写入新文件，不改写当前编辑配置，保存后返回配置中心 ──
   const handleSaveAs = useCallback(async () => {
     const subDir = getSubDir();
     const rawName = saveAsName.trim().replace(/\.json$/i, "");
@@ -296,8 +327,9 @@ export function ConfigPage() {
       return;
     }
 
-    let targetDir = subDir;
-    if (!targetDir) {
+    let newPath = "";
+
+    if (!subDir) {
       // 没有已知子目录，弹出系统文件保存框
       try {
         const { save } = await import("@tauri-apps/plugin-dialog");
@@ -306,57 +338,34 @@ export function ConfigPage() {
           defaultPath: `${rawName}.json`,
         });
         if (!chosen) return;
-        targetDir = chosen.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
-        const newPath = chosen;
-        const json = getJson();
-        await tauriWriteFile(newPath, json);
-        
-      import("../../lib/configRecords").then(({ scanAndSyncConfigsRecord }) => {
-         const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
-         scanAndSyncConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).then(synced => {
-             useConfigCardsStore.getState().importCards(synced);
-         });
-      });
-
-        setShowSaveAs(false);
-        setSaveAsName("");
-        addToast({ type: "success", message: `已另存为 ${newPath}` });
-        useTvBoxStore.getState().setSourcePath(newPath);
-        useTvBoxStore.getState().setDirty(false);
-        return;
+        newPath = chosen;
       } catch (e) {
         addToast({ type: "error", message: `另存为失败: ${e}` });
         return;
       }
+    } else {
+      newPath = `${subDir}/${rawName}.json`;
     }
 
-    const newPath = `${targetDir}/${rawName}.json`;
-    const json = getJson();
     try {
-      const { setServerResourceDir, serverCache } = await import("../../lib/tauri");
+      const json = getJson();
       await tauriWriteFile(newPath, json);
-      await setServerResourceDir(targetDir).catch(() => {});
-      await serverCache("tvbox.json", json).catch(() => {});
-      
-      import("../../lib/configRecords").then(({ scanAndSyncConfigsRecord }) => {
-         const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
-         scanAndSyncConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).then(synced => {
-             useConfigCardsStore.getState().importCards(synced);
-         });
-      });
 
+      // 持久化卡片记录
       const rootSaveDir = useSettingsStore.getState().settings.saveDir || "./box";
       const { writeConfigsRecord } = await import("../../lib/configRecords");
       await writeConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).catch(() => {});
+
       setShowSaveAs(false);
       setSaveAsName("");
-      addToast({ type: "success", message: `已另存为 ${rawName}.json` });
-      useTvBoxStore.getState().setSourcePath(newPath);
-      useTvBoxStore.getState().setDirty(false);
+      addToast({ type: "success", message: `已另存为 ${newPath}，即将返回配置中心` });
+
+      // 不改写当前配置的 sourcePath，直接清除并返回配置中心（dashboard）
+      clearSource();
     } catch (e) {
       addToast({ type: "error", message: `另存为失败: ${e}` });
     }
-  }, [saveAsName, getJson, getSubDir, source, upsertConfigCard, addToast]);
+  }, [saveAsName, getJson, getSubDir, addToast, clearSource]);
 
   // ── 统计数 ──
   const sourceCounts = source ? {

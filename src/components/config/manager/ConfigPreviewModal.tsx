@@ -18,13 +18,18 @@ interface Props {
   onOpenInEditor: (target: string) => void;
 }
 
+import { useSettingsStore } from "../../../store";
+
 export function ConfigPreviewModal({ open, card, onClose, onOpenInEditor }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sourceData, setSourceData] = useState<TvBoxSource | null>(null);
   const [activeTab, setActiveTab] = useState<"summary" | "sites" | "lives" | "raw">("summary");
+  
+  const { settings } = useSettingsStore();
+  const rootSaveDir = (settings.saveDir || "./box").replace(/\/+$/, "");
 
-  const targetPath = card ? `${card.projectName}/${card.defaultConfig}` : "";
+  const targetPath = card ? `${rootSaveDir}/${card.projectName}/${card.defaultConfig}` : "";
 
   useEffect(() => {
     if (!open || !targetPath) {

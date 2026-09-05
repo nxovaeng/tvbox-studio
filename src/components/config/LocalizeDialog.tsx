@@ -18,13 +18,18 @@ interface Props {
   open: boolean;
   onClose: () => void;
   sourceUrl: string;
+  externalSource?: import("../../types/tvbox").TvBoxSource | null;
+  externalSaveDir?: string;
+  onComplete?: (updatedSource: import("../../types/tvbox").TvBoxSource) => void;
 }
 
-export function LocalizeDialog({ open, onClose, sourceUrl }: Props) {
-  const { source, updateSource } = useTvBoxStore();
+export function LocalizeDialog({ open, onClose, sourceUrl, externalSource, externalSaveDir, onComplete }: Props) {
+  const { source: storeSource, updateSource } = useTvBoxStore();
+  const source = externalSource !== undefined ? externalSource : storeSource;
   const { addToast } = useUIStore();
 
   const defaultDir = React.useMemo(() => {
+    if (externalSaveDir) return externalSaveDir;
     if (source?.path) {
       return source.path.replace(/[/\\][^/\\]+$/, "");
     }
@@ -32,7 +37,7 @@ export function LocalizeDialog({ open, onClose, sourceUrl }: Props) {
       ? source.name.toLowerCase().replace(/[^\w\u4e00-\u9fa5]+/g, "_")
       : "my_box";
     return `./box/${cleanName}`;
-  }, [source]);
+  }, [source, externalSaveDir]);
 
   const [saveDir, setSaveDir] = useState(defaultDir);
   const [resources, setResources] = useState<ResourceItem[] | null>(null);
@@ -43,10 +48,22 @@ export function LocalizeDialog({ open, onClose, sourceUrl }: Props) {
     setSaveDir(defaultDir);
   }, [defaultDir]);
 
+
   const analyze = useCallback(() => {
     if (source) setResources(extractResources(source, saveDir, sourceUrl));
     setDone(0);
   }, [source, saveDir, sourceUrl]);
+
+  React.useEffect(() => {
+    if (open) {
+      // Trigger analyze when opened (but defer slightly to ensure saveDir is updated)
+      setTimeout(analyze, 50);
+    } else {
+      setResources(null);
+      setRunning(false);
+      setDone(0);
+    }
+  }, [open, analyze]);
 
   const updateItem = (id: string, patch: Partial<ResourceItem>) => {
     setResources((current) =>
@@ -78,8 +95,16 @@ export function LocalizeDialog({ open, onClose, sourceUrl }: Props) {
     }
 
     const updated = rewriteSourcePaths(source, resources, saveDir, successful);
-    updateSource(updated);
     setRunning(false);
+
+    if (onComplete) {
+      // Pre-import mode: Just return the localized config
+      onComplete(updated);
+      return;
+    }
+
+    // Post-import mode: Update store and disk
+    updateSource(updated);
 
     // 若配置已有本地路径，直接自动写回本地文件并同步服务器资源目录（纯净序列化，不带 name 和 path）
     if (source.path) {
@@ -129,23 +154,10 @@ export function LocalizeDialog({ open, onClose, sourceUrl }: Props) {
           <HardDrive className="h-4 w-4 text-muted-foreground flex-shrink-0" />
           <Input
             value={saveDir}
-            onChange={(event) => setSaveDir(event.target.value)}
-            placeholder="本地保存目录，例如: ./box/my_box"
-            className="flex-1 font-mono text-xs"
+            readOnly
+            title="内置资源保存目录，不可修改"
+            className="flex-1 font-mono text-xs bg-muted cursor-not-allowed"
           />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={async () => {
-              try {
-                const { open: openDir } = await import("@tauri-apps/plugin-dialog");
-                const selected = await openDir({ directory: true, multiple: false });
-                if (selected && typeof selected === "string") setSaveDir(selected);
-              } catch {}
-            }}
-          >
-            浏览
-          </Button>
           <Button variant="outline" onClick={analyze} icon={<RefreshCw className="h-3.5 w-3.5" />}>
             分析资源
           </Button>

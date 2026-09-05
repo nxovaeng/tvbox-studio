@@ -9,12 +9,16 @@ interface Props {
   onClose: () => void;
   onCreateBlank: (projectName: string, targetPath: string, template?: "fongmi" | "catbox" | "empty") => void;
   onOpenLocalFile: () => void;
-  onImportUrl: (url: string, projectName: string, targetPath: string) => void;
+  onImportUrl: (url: string, projectName: string, targetPath: string, localizedSource?: import("../../../types/tvbox").TvBoxSource) => void;
 }
+
+import { LocalizeDialog } from "../LocalizeDialog";
+import { useUIStore } from "../../../store";
 
 export function ConfigCreateModal({ open, onClose, onCreateBlank, onOpenLocalFile, onImportUrl }: Props) {
   const [tab, setTab] = useState<"blank" | "template" | "url" | "file">("blank");
   const { settings } = useSettingsStore();
+  const { addToast } = useUIStore();
   const rootSaveDir = (settings.saveDir || "./box").replace(/\/+$/, "");
 
   // 空白配置参数
@@ -30,6 +34,14 @@ export function ConfigCreateModal({ open, onClose, onCreateBlank, onOpenLocalFil
   const [urlInput, setUrlInput] = useState("");
   const [urlProject, setUrlProject] = useState("");
   const [urlFileName, setUrlFileName] = useState("tvbox.json");
+  const [loadingUrl, setLoadingUrl] = useState(false);
+  const [preLocalize, setPreLocalize] = useState<{
+    url: string;
+    source: import("../../../types/tvbox").TvBoxSource;
+    targetPath: string;
+    projectName: string;
+    saveDir: string;
+  } | null>(null);
 
   return (
     <Dialog open={open} onClose={onClose} title="新建 / 导入配置" className="max-w-md">
@@ -238,6 +250,13 @@ export function ConfigCreateModal({ open, onClose, onCreateBlank, onOpenLocalFil
               />
             </div>
 
+            <div className="space-y-1.5 mt-1">
+              <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 p-2 bg-blue-500/10 text-blue-600 rounded-md">
+                <Globe className="h-3.5 w-3.5" />
+                导入前将自动分析并下载远端配置中的静态资源（JAR/JS等），确认无误后再创建项目。
+              </div>
+            </div>
+
             <div className="p-2.5 rounded-md bg-muted/40 text-[11px] text-muted-foreground border border-border/40 font-mono break-all mt-2">
               <span className="font-semibold text-foreground">目标物理路径:</span><br />
               {rootSaveDir}/<span className="text-primary">{urlProject || "<项目名称>"}</span>/<span className="text-blue-500">{urlFileName || "tvbox.json"}</span>
@@ -247,17 +266,35 @@ export function ConfigCreateModal({ open, onClose, onCreateBlank, onOpenLocalFil
               <Button variant="outline" onClick={onClose}>取消</Button>
               <Button
                 variant="primary"
-                disabled={!urlInput.trim() || !urlProject.trim() || !urlFileName.trim()}
-                onClick={() => {
+                disabled={!urlInput.trim() || !urlProject.trim() || !urlFileName.trim() || loadingUrl}
+                loading={loadingUrl}
+                onClick={async () => {
                   let f = urlFileName.trim();
                   if (!f.endsWith(".json")) f += ".json";
                   const p = urlProject.trim();
                   const targetPath = `${rootSaveDir}/${p}/${f}`;
-                  onImportUrl(urlInput.trim(), p, targetPath);
-                  onClose();
+                  
+                  setLoadingUrl(true);
+                  try {
+                    const { fetchRemoteText } = await import("../../../lib/localize");
+                    const { parseJsonc } = await import("../../../lib/utils");
+                    const raw = await fetchRemoteText(urlInput.trim());
+                    const parsed = parseJsonc(raw) as import("../../../types/tvbox").TvBoxSource;
+                    setPreLocalize({
+                      url: urlInput.trim(),
+                      source: parsed,
+                      targetPath,
+                      projectName: p,
+                      saveDir: `${rootSaveDir}/${p}`
+                    });
+                  } catch (e) {
+                    addToast({ type: "error", message: `拉取网络配置失败: ${e}` });
+                  } finally {
+                    setLoadingUrl(false);
+                  }
                 }}
               >
-                导入并新建项目
+                获取并分析资源
               </Button>
             </div>
           </div>
@@ -292,6 +329,22 @@ export function ConfigCreateModal({ open, onClose, onCreateBlank, onOpenLocalFil
           </div>
         )}
       </div>
+      
+      {/* 预分析本地化弹窗 */}
+      {preLocalize && (
+        <LocalizeDialog
+          open={Boolean(preLocalize)}
+          onClose={() => setPreLocalize(null)}
+          sourceUrl={preLocalize.url}
+          externalSource={preLocalize.source}
+          externalSaveDir={preLocalize.saveDir}
+          onComplete={(updatedSource) => {
+            setPreLocalize(null);
+            onImportUrl(preLocalize.url, preLocalize.projectName, preLocalize.targetPath, updatedSource);
+            onClose();
+          }}
+        />
+      )}
     </Dialog>
   );
 }

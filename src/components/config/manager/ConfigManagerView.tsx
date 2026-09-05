@@ -31,7 +31,8 @@ interface Props {
     tab?: "sites" | "lives" | "parses" | "basic",
     cardId?: string,
     targetPath?: string,
-    customName?: string
+    customName?: string,
+    localizedSource?: import("../../../types/tvbox").TvBoxSource
   ) => void;
   onOpenLocalFileDialog: () => void;
 }
@@ -60,7 +61,7 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showBackupModal, setShowBackupModal] = useState(false);
 
-  // 自动从根目录 configs.json 及子目录加载/同步
+  // 手动从根目录 configs.json 及子目录加载/同步
   const handleSyncDisk = useCallback(async () => {
     setSyncing(true);
     try {
@@ -75,14 +76,6 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
       setSyncing(false);
     }
   }, [rootSaveDir, importCards, addToast]);
-
-  useEffect(() => {
-    scanAndSyncConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).then((synced) => {
-      if (synced && synced.length > 0) {
-        importCards(synced);
-      }
-    }).catch(() => {});
-  }, [rootSaveDir]);
 
   // 收集所有可用标签
   const allTags = useMemo(() => {
@@ -550,7 +543,7 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
         onClose={() => setShowCreateModal(false)}
         onCreateBlank={async (projectName, targetPath, template) => {
           try {
-            const { writeFile: writeLocal, setServerResourceDir, serverCache } = await import("../../../lib/tauri");
+            const { writeFile: writeLocal } = await import("../../../lib/tauri");
             let initialJson = JSON.stringify({ sites: [], lives: [] }, null, 2);
             if (template && template !== "empty") {
               try {
@@ -559,31 +552,61 @@ export function ConfigManagerView({ onSelect, onOpenLocalFileDialog }: Props) {
               } catch {}
             }
             await writeLocal(targetPath, initialJson);
-            const dir = targetPath.replace(/\\/g, "/").replace(/\/[^/]+$/, "");
-            await setServerResourceDir(dir).catch(() => {});
-            await serverCache("tvbox.json", initialJson).catch(() => {});
-            
-            const { scanAndSyncConfigsRecord } = await import("../../../lib/configRecords");
-            const synced = await scanAndSyncConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards);
-            if (synced && synced.length > 0) useConfigCardsStore.getState().importCards(synced);
-            
-            const newCard = synced.find(c => c.projectName === projectName);
-            if (newCard) onSelect(`file://${targetPath}`, "basic", newCard.id, targetPath);
+
+            // 解析统计信息
+            let sites = 0, lives = 0, parses = 0, spider: string | undefined;
+            try {
+              const parsed = JSON.parse(initialJson);
+              sites = parsed.sites?.length ?? 0;
+              lives = parsed.lives?.length ?? 0;
+              parses = parsed.parses?.length ?? 0;
+              spider = parsed.spider;
+            } catch {}
+
+            // 注册卡片并持久化到 configs.json，不进入工作区
+            const parts = targetPath.replace(/\\/g, "/").split("/");
+            const fileName = parts.pop() || "tvbox.json";
+            upsert({
+              id: projectName,
+              projectName,
+              defaultConfig: fileName,
+              configs: [fileName],
+              sites, lives, parses, spider,
+            });
+            const { writeConfigsRecord } = await import("../../../lib/configRecords");
+            await writeConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).catch(() => {});
+
             addToast({ type: "success", message: `成功创建配置项目: ${projectName}` });
           } catch (e) {
             addToast({ type: "error", message: `创建失败: ${e}` });
           }
         }}
-        onImportUrl={async (url, projectName, targetPath) => {
+        onImportUrl={async (url, projectName, targetPath, localizedSource) => {
           try {
-            // Because handleCardSelect uses loadFromUrl which fetches and saves to targetPath
-            // We just need to trigger the selection! ConfigPage handles it.
-            // Wait, ConfigPage's handleCardSelect has a targetLocalPath argument.
-            // onSelect is onSelect(url, "basic", undefined, targetLocalPath, customName)
-            onSelect(url, "basic", undefined, targetPath, projectName);
-            addToast({ type: "success", message: `开始导入网络配置: ${url}` });
+            const { writeFile: writeLocal } = await import("../../../lib/tauri");
+            const sourceToSave = localizedSource || { sites: [], lives: [] };
+            const jsonText = JSON.stringify(sourceToSave, null, 2);
+            await writeLocal(targetPath, jsonText);
+
+            // 注册卡片并持久化到 configs.json，不进入工作区
+            const parts = targetPath.replace(/\\/g, "/").split("/");
+            const fileName = parts.pop() || "tvbox.json";
+            upsert({
+              id: projectName,
+              projectName,
+              defaultConfig: fileName,
+              configs: [fileName],
+              sites: sourceToSave.sites?.length ?? 0,
+              lives: sourceToSave.lives?.length ?? 0,
+              parses: (sourceToSave as any).parses?.length ?? 0,
+              spider: (sourceToSave as any).spider,
+            });
+            const { writeConfigsRecord } = await import("../../../lib/configRecords");
+            await writeConfigsRecord(rootSaveDir, useConfigCardsStore.getState().cards).catch(() => {});
+
+            addToast({ type: "success", message: `已导入并创建配置项目: ${projectName}` });
           } catch (e) {
-            addToast({ type: "error", message: `导入启动失败: ${e}` });
+            addToast({ type: "error", message: `导入失败: ${e}` });
           }
         }}
                         onOpenLocalFile={onOpenLocalFileDialog}
